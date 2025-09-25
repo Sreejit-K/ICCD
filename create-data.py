@@ -931,8 +931,8 @@ def generate_project(common_data, user_id):
                 "campaignId": campaign_id,
                 "campaignNumber": campaign_number,
                 "referenceID": campaign_number,
-                "targetPerDay": 2500,
-                "overallTarget": 25000,
+                "targetPerDay": 25,
+                "overallTarget": 250,
                 "targetType": random.choice(["HOUSEHOLD", "INDIVIDUAL", "PRODUCT"]),
                 "projectBeneficiaryType": "HOUSEHOLD",
                 "productVariant": "PVAR-2025-01-09-000103,PVAR-2025-01-09-000104",
@@ -952,7 +952,7 @@ def generate_population_coverage_summary(common_data, user_id):
     if not ("district" in boundary and "province" in boundary):
         return None
 
-    total_admin = random.randint(5, 300)
+    total_admin = random.randint(5, 50)
     total_pop = random.randint(1, total_admin)
     total_male = random.randint(0, total_pop)
     total_female = total_pop - total_male
@@ -998,7 +998,7 @@ def generate_population_coverage_summary_datewise(common_data, user_id):
     base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
 
-    total_admin = random.randint(5, 60)
+    total_admin = random.randint(5, 50)
     total_pop = random.randint(1, total_admin)
     total_male = random.randint(0, total_pop)
     total_female = total_pop - total_male
@@ -1429,16 +1429,15 @@ def upload_bulk_to_es(file_path, es_url, index_name, chunk_size=50000, max_chunk
                 )
 
                 if response.status_code == 200:
-                    logger.info(f"✅ Chunk upload successful (attempt {attempt}).")
+                    logger.info(f" Chunk upload successful (attempt {attempt}).")
                     return True
                 else:
-                    logger.warning(f"❌ Chunk upload failed (attempt {attempt}). Status Code: {response.status_code}. Retrying in {retry_delay}s...")
+                    logger.warning(f" Chunk upload failed (attempt {attempt}). Status Code: {response.status_code}. Retrying in {retry_delay}s...")
                     time.sleep(retry_delay)
             except requests.exceptions.RequestException as e:
-                logger.error(f"❌ Request exception during chunk upload (attempt {attempt}): {e}")
+                logger.error(f" Request exception during chunk upload (attempt {attempt}): {e}")
                 time.sleep(retry_delay)
 
-        logger.error("❌ Chunk upload failed after maximum retries.")
         return False
 
     try:
@@ -1456,7 +1455,7 @@ def upload_bulk_to_es(file_path, es_url, index_name, chunk_size=50000, max_chunk
 
         logger.info(f"Finished uploading all chunks for index '{index_name}'.")
     except Exception as e:
-        logger.exception(f"❌ Exception occurred while uploading bulk data to index '{index_name}': {e}")
+        logger.exception(f" Exception occurred while uploading bulk data to index '{index_name}': {e}")
 
 
 def generate_ineligible_summary(common_data, user_id):
