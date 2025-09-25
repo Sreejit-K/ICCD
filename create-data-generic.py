@@ -817,6 +817,13 @@ def getSharedData(user_id, loop_index):
 # Generators (read campaign/geo from SETTINGS)
 # ========================
 
+# helper: weighted choice using counts
+def _weighted_choice(weight_map: dict) -> str:
+    keys = list(weight_map.keys())
+    weights = list(weight_map.values())
+    # random.choices is available in stdlib; fallback if needed
+    return random.choices(keys, weights=weights, k=1)[0]
+
 def generate_project_task(common_data, individual_client_ref_id, individual_id):
     c = SETTINGS.CAMPAIGN
     boundary = common_data["boundaryHierarchy"]
@@ -831,7 +838,6 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
     synced_time = last_modified_time - random.randint(100, 1000)
     synced_timestamp_iso = datetime.fromtimestamp(synced_time / 1000, timezone.utc).isoformat().replace('+00:00', 'Z')
 
-    _id = str(uuid.uuid4())
     client_reference_id = str(uuid.uuid4())
     task_client_reference_id = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
@@ -848,6 +854,28 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
     ]
 
     project_id = f"PT-{now.strftime('%Y-%m-%d')}-{random.randint(900000, 999999):06d}"
+
+    # ---- distributions from your ES ----
+    status_weights = {
+        "ADMINISTRATION_SUCCESS":    829,
+        "ADMINISTRATION_FAILED":     816,
+        "CLOSED_HOUSEHOLD":          742,
+        "BENEFICIARY_REFUSED":       266,
+        "BENEFICIARY_REFERRED":       83,
+        "BENEFICIARY_INELIGIBLE":     82,
+        "NOT_ADMINISTERED":           70,
+        "DELIVERED":                  29,
+        "INELIGIBLE":                 15,
+    }
+    delivered_to_weights = {
+        "HOUSEHOLD":  78503,
+        "INDIVIDUAL": 77067
+        # (Your data shows only these two; exclude OTHER)
+    }
+
+    # pick values according to weights
+    chosen_status = _weighted_choice(status_weights)
+    delivered_to = _weighted_choice(delivered_to_weights)
 
     additional_details_options = [
         {
@@ -868,11 +896,10 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
             "pregnantWomenCount": str(random.randint(0, 2)),
             "administrativeArea": boundary.get("village", boundary.get("locality")),
             "childrenCount": str(random.randint(0, 4)),
-            "gender": random.choice(["MALE","FEMALE"])
+            "gender": random.choice(["MALE", "FEMALE"])
         }
     ]
     additional_details = random.choice(additional_details_options)
-    administration_status = "ADMINISTRATION_SUCCESS"
     delivery_comments = random.choice(["SUCCESSFUL_DELIVERY", None])
     complex_id = f"{client_reference_id}{individual_client_ref_id}mz"
 
@@ -887,7 +914,10 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "role": "DISTRIBUTOR",
                 "lastModifiedTime": last_modified_time,
                 "taskDates": random_date_str(),
-                "administrationStatus": administration_status,
+                # keep both fields and keep them aligned
+                "administrationStatus": chosen_status,
+                "status": chosen_status,
+
                 "syncedTime": synced_time,
                 "latitude": latitude,
                 "projectType": c.project_type,
@@ -907,7 +937,7 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "quantity": 1,
                 "projectBeneficiaryClientReferenceId": individual_client_ref_id,
                 "campaignId": c.campaign_id,
-                "deliveredTo": random.choice(["HOUSEHOLD","INDIVIDUAL","OTHER"]),
+                "deliveredTo": delivered_to,
                 "lastModifiedBy": str(uuid.uuid4()),
                 "memberCount": random.randint(1, 3),
                 "localityCode": most_specific_locality_code(codes, boundary),
@@ -921,13 +951,12 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "@timestamp": timestamp_iso,
                 "productVariant": random.choice(product_variants),
                 "createdBy": str(uuid.uuid4()),
-                "tenantId": SETTINGS.CAMPAIGN.tenant_id,
+                "tenantId": c.tenant_id,
                 "projectName": common_data["projectName"],
                 "campaignNumber": c.campaign_number,
                 "projectId": project_id,
                 "taskId": project_id,
-                "deliveryComments": delivery_comments,
-                "status": administration_status
+                "deliveryComments": delivery_comments
             }
         }
     }
@@ -1547,52 +1576,86 @@ def generate_stock(common_data, stock_id=None, client_ref_id=None, facility_id=N
 
 def generate_service_task(common_data, user_id):
     c = SETTINGS.CAMPAIGN
-    checklist_names = ["HOUSEHOLD", "ELIGIBILITY"]
-    supervisor_levels = ["DISTRIBUTOR", "TEAM_SUPERVISOR", "DISTRICT_SUPERVISOR"]
-    service_definition_ids = [
-        "fe7cdbcf-5818-43a5-91ac-fc682c1255db",
-        "d8c4c518-36bb-432d-9e25-69bb94ec5a5f"
+
+    # ChecklistName distribution from your ES counts
+    checklist_names = [
+        "ELIGIBLITY_ASSESSMENT", "TRAINING_SUPERVISION", "MOBILIZER_FORM", "SOP",
+        "TEAM_SUPERVISION", "EOD_CLEANING", "HEALTH_PROFESSIONAL", "PERFORMANCE_STANDARD",
+        "STOCK_MANAGEMENT", "PAYMENT_DATA", "LLINMozambique2.REGISTRATION_BASIC.DISTRICT_SUPERVISOR",
+        "LLINMozambique2.MATERIAL_RECEIVED.LOCAL_MONITOR", "ELIGIBILITY", "LLINMozambique2.MATERIAL_ISSUED.LOCAL_MONITOR",
+        "HOUSEHOLD", "HF_RF_FEVER", "INDIVIDUAL", "LLINMozambique2.AS_MONITORING.DISTRICT_SUPERVISOR",
+        "LLIN Mozambique.REGISTRATION_BASIC.DISTRICT_SUPERVISOR", "LLIN Mozambique.MATERIAL_RECEIVED.WAREHOUSE_MANAGER",
+        "HF_RF_SICK", "WAREHOUSE_MANAGER_PERFORMANCE", "LLIN Mozambique.MATERIAL_ISSUED.WAREHOUSE_MANAGER",
+        "LLINMozambique2.DISTRICT_MONITOR_TRAINING.DISTRICT_SUPERVISOR", "SPECIAL_SPRAYING", "MMI",
+        "LLINMozambique2.REGISTRATION_BASIC.PROVINCIAL_SUPERVISOR", "TRAINING_MONITORING", "IEC",
+        "LLINMozambique2.MATERIAL_ISSUED.LOGISTIC_FOCAL_POINT", "WAREHOUSE_MONITORING",
+        "LLINMozambique2.REGISTRATION_BASIC.NATIONAL_SUPERVISOR", "ITV",
+        "LLIN Mozambique.AS_MONITORING.DISTRICT_SUPERVISOR", "LLINMozambique2.DISTRICT_MONITOR_TRAINING.PROVINCIAL_SUPERVISOR",
+        "LLINMozambique2.AS_MONITORING.PROVINCIAL_SUPERVISOR", "LLIN Mozambique.DISTRICT_MONITOR_TRAINING.DISTRICT_SUPERVISOR",
+        "PCECAI", "HF_RF_DRUG_SE_CC", "LLIN Mozambique.LOCAL_MONITOR_TRAINING.DISTRICT_SUPERVISOR",
+        "LLIN Mozambique.REGISTRATION_TEAM_TRAINING.DISTRICT_SUPERVISOR",
+        "LLINMozambique2.AS_MONITORING.NATIONAL_SUPERVISOR",
+        "LLINMozambique2.REGISTRATION_TEAM_TRAINING.DISTRICT_SUPERVISOR",
+        "LLIN Mozambique.REGISTRATION_BASIC.PROVINCIAL_SUPERVISOR",
+        "LLINMozambique2.LOCAL_MONITOR_TRAINING.DISTRICT_SUPERVISOR",
+        "LLINMozambique2.LOCAL_MONITOR_TRAINING.NATIONAL_SUPERVISOR",
+        "TEAM_FORMATION", "HF_RF_DRUG_SE_PC",
+        "LLIN Mozambique.DISTRICT_MONITOR_TRAINING.NATIONAL_SUPERVISOR",
+        "LLINMozambique2.REGISTRATION_TEAM_TRAINING.PROVINCIAL_SUPERVISOR"
+    ]
+    checklist_name = random.choice(checklist_names)
+
+    # Roles from your ES counts
+    roles = [
+        "COMMUNITY_DISTRIBUTOR", "DISTRIBUTOR", "MOBILIZER", "TEAM_SUPERVISOR",
+        "DISTRICT_SUPERVISOR", "HEALTH_FACILITY_SUPERVISOR", "COMMUNITY_SUPERVISOR",
+        "PROVINCIAL_SUPERVISOR", "LOCAL_MONITOR", "SUPERVISOR",
+        "NATIONAL_SUPERVISOR", "HEALTH_FACILITY_WORKER", "WAREHOUSE_MANAGER",
+        "LOGISTIC_FOCAL_POINT"
     ]
 
-    household_attribute_codes = ["SN1", "SN2", "SN3", "SN4", "SN5"]
-    eligibility_attribute_codes = ["SMC1", "SMC1.YES.SM1", "SMC2", "SMC3"]
-    household_attribute_values = ["0", "1"]
+    # Attribute value distribution from ES
+    attribute_values = [
+        "0", "1", "YES", "NO", "NOT_SELECTED", "true", "false", "POSITIVE", "NEGATIVE",
+        "SHORTAGES", "MEDICAL_EQUIPMENT", "HOSPITALS", "PERSONAL_PROTECTIVE_EQUIPMENT_(PPE)",
+        "CLINICS", "COMMUNITY_HEALTH_CENTERS", "QUALITY_COMPLAINTS", "PHARMACEUTICALS",
+        "HEALTH_POST", "OPTION_1", "OTHER", "PRIMARY_HEALTH_CLINIC", "SUMISHIELD", "FLUDORA",
+        "Malrial5"
+    ]
+
+    # Attribute codes pool (mixing household & eligibility codes + generic)
+    attribute_codes = ["SN1", "SN2", "SN3", "SN4", "SN5", "SMC1", "SMC1.YES.SM1", "SMC2", "SMC3"]
 
     now = datetime.now(timezone.utc)
     timestamp = int(now.timestamp() * 1000)
-
-    checklist_name = random.choice(checklist_names)
-    service_definition_id = service_definition_ids[0] if checklist_name == "HOUSEHOLD" else service_definition_ids[1]
-
     client_reference_id = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
 
-    if checklist_name == "HOUSEHOLD":
-        attributes = [{
+    # Generate attributes with random value permutations
+    attributes = []
+    for code in random.sample(attribute_codes, k=random.randint(3, 6)):
+        val = random.choice(attribute_values)
+        attributes.append({
             "attributeCode": code,
             "auditDetails": common_data["auditDetails"],
             "id": str(uuid.uuid4()),
             "additionalDetails": None,
-            "value": {"value": random.choice(household_attribute_values)},
+            "value": {"value": val},
             "referenceId": task_id
-        } for code in household_attribute_codes]
-        geo_point = list(pick_lat_lon_for_boundary(common_data["boundaryHierarchy"]))[::-1]  # [lon, lat]
+        })
+
+    # Boundary & geoPoint handling
+    if checklist_name in ["HOUSEHOLD", "HF_RF_FEVER", "HF_RF_SICK", "INDIVIDUAL"]:
+        geo_point = list(pick_lat_lon_for_boundary(common_data["boundaryHierarchy"]))[::-1]
         bh = common_data["boundaryHierarchy"]
         bc = common_data["boundaryHierarchyCode"]
     else:
-        attributes = []
-        for code in eligibility_attribute_codes:
-            val = "NOT_SELECTED" if code == "SMC1.YES.SM1" else random.choice(["YES", "NO"])
-            attributes.append({
-                "attributeCode": code,
-                "auditDetails": common_data["auditDetails"],
-                "id": str(uuid.uuid4()),
-                "additionalDetails": None,
-                "value": {"value": val},
-                "referenceId": task_id
-            })
         geo_point = None
-        bh, bc = boundary_slice(common_data["boundaryHierarchy"], common_data["boundaryHierarchyCode"], "country")
+        bh, bc = boundary_slice(
+            common_data["boundaryHierarchy"],
+            common_data["boundaryHierarchyCode"],
+            "country"
+        )
 
     return {
         "_index": SERVICE_TASK_INDEX,
@@ -1600,9 +1663,9 @@ def generate_service_task(common_data, user_id):
         "_source": {
             "ingestionTime": now.isoformat() + "Z",
             "Data": {
-                "supervisorLevel": random.choice(supervisor_levels),
+                "supervisorLevel": random.choice(roles),
                 "boundaryHierarchy": bh,
-                "role": "DISTRIBUTOR",
+                "role": random.choice(roles),
                 "taskDates": random_date_str(),
                 "syncedTime": timestamp,
                 "projectType": c.project_type,
@@ -1613,7 +1676,10 @@ def generate_service_task(common_data, user_id):
                 "id": task_id,
                 "syncedTimeStamp": now.isoformat() + "Z",
                 "campaignId": c.campaign_id,
-                "serviceDefinitionId": service_definition_id,
+                "serviceDefinitionId": random.choice([
+                    "fe7cdbcf-5818-43a5-91ac-fc682c1255db",
+                    "d8c4c518-36bb-432d-9e25-69bb94ec5a5f"
+                ]),
                 "nameOfUser": common_data["nameOfUser"],
                 "userName": common_data["userName"],
                 "boundaryHierarchyCode": bc,
@@ -1623,7 +1689,7 @@ def generate_service_task(common_data, user_id):
                 "projectTypeId": c.project_type_id,
                 "@timestamp": now.isoformat() + "Z",
                 "createdBy": user_id,
-                "tenantId": SETTINGS.CAMPAIGN.tenant_id,
+                "tenantId": c.tenant_id,
                 "attributes": attributes,
                 "projectName": common_data["projectName"],
                 "campaignNumber": c.campaign_number,
