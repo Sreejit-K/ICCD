@@ -989,7 +989,7 @@ def generate_household(common_data, user_id):
     name_of_user = common_data.get("nameOfUser") or "ICD User One"
     user_name = common_data.get("userName") or "USR-006362"
 
-    member_count_num = random.randint(2, 6)
+    member_count_num = random.randint(2, 36)
     member_count_str = str(member_count_num)
     preg_count_str = str(random.randint(0, 2))
     child_count_str = str(random.randint(0, 3))
@@ -1645,17 +1645,35 @@ def generate_service_task(common_data, user_id):
         })
 
     # Boundary & geoPoint handling
-    if checklist_name in ["HOUSEHOLD", "HF_RF_FEVER", "HF_RF_SICK", "INDIVIDUAL"]:
-        geo_point = list(pick_lat_lon_for_boundary(common_data["boundaryHierarchy"]))[::-1]
-        bh = common_data["boundaryHierarchy"]
-        bc = common_data["boundaryHierarchyCode"]
-    else:
-        geo_point = None
-        bh, bc = boundary_slice(
-            common_data["boundaryHierarchy"],
-            common_data["boundaryHierarchyCode"],
-            "country"
-        )
+    # if checklist_name in ["HOUSEHOLD", "HF_RF_FEVER", "HF_RF_SICK", "INDIVIDUAL"]:
+    #     geo_point = list(pick_lat_lon_for_boundary(common_data["boundaryHierarchy"]))[::-1]
+    #     bh = common_data["boundaryHierarchy"]
+    #     bc = common_data["boundaryHierarchyCode"]
+    # else:
+    #     geo_point = None
+    #     bh, bc = boundary_slice(
+    #         common_data["boundaryHierarchy"],
+    #         common_data["boundaryHierarchyCode"],
+    #         "country"
+    #     )
+
+
+    levels = ["country", "province", "district", "locality", "village", "administrativeProvince"]
+    slice_level = random.choice(levels)
+    geo_point = list(pick_lat_lon_for_boundary(common_data["boundaryHierarchy"]))[::-1]  # or keep lat/lon if you want
+    bh, bc = boundary_slice(common_data["boundaryHierarchy"], common_data["boundaryHierarchyCode"], slice_level)
+
+    # # Boundary & geoPoint handling
+    # if checklist_name in ["HOUSEHOLD", "HF_RF_FEVER", "HF_RF_SICK", "INDIVIDUAL"]:
+    #     geo_point = list(pick_lat_lon_for_boundary(common_data["boundaryHierarchy"]))[::-1]
+    #     bh = common_data["boundaryHierarchy"]
+    #     bc = common_data["boundaryHierarchyCode"]
+    # else:
+    #         levels = ["country", "province", "district", "locality", "village", "administrativeProvince"]
+    #         slice_level = random.choice(levels)
+    #         geo_point = list(pick_lat_lon_for_boundary(common_data["boundaryHierarchy"]))[::-1]  # or keep lat/lon if you want
+    #         bh, bc = boundary_slice(common_data["boundaryHierarchy"], common_data["boundaryHierarchyCode"], slice_level)
+
 
     return {
         "_index": SERVICE_TASK_INDEX,
