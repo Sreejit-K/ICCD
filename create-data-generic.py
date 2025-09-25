@@ -860,7 +860,8 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
             "cycleIndex": "01",
             "noOfRooms": random.randint(1, 15),
             "pregnantWomen": random.randint(0, 1),
-            "longitude": "4.41527528930878"
+            "longitude": "4.41527528930878",
+            "gender": random.choice(["MALE","FEMALE"])
         },
         {
             "memberCount": str(random.randint(1, 3)),
@@ -868,7 +869,8 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
             "cycleIndex": random.choice([None, "01"]),
             "pregnantWomenCount": str(random.randint(0, 2)),
             "administrativeArea": boundary.get("village", boundary.get("locality")),
-            "childrenCount": str(random.randint(0, 4))
+            "childrenCount": str(random.randint(0, 4)),
+            "gender": random.choice(["MALE","FEMALE"])
         }
     ]
     additional_details = random.choice(additional_details_options)
@@ -907,7 +909,7 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "quantity": 1,
                 "projectBeneficiaryClientReferenceId": individual_client_ref_id,
                 "campaignId": c.campaign_id,
-                "deliveredTo": "HOUSEHOLD",
+                "deliveredTo": random.choice(["HOUSEHOLD","INDIVIDUAL","OTHER"]),
                 "lastModifiedBy": str(uuid.uuid4()),
                 "memberCount": random.randint(1, 3),
                 "localityCode": most_specific_locality_code(codes, boundary),
@@ -1313,24 +1315,27 @@ def generate_project(common_data, user_id):
     c = SETTINGS.CAMPAIGN
     now = datetime.now(timezone.utc)
     timestamp = now.isoformat() + 'Z'
-
     project_id = str(uuid.uuid4())
     project_number = f"PJT-{now.strftime('%Y-%m-%d')}-{random.randint(100000, 999999)}"
-
     start_date = datetime(2025, 9, 20)
     end_date = datetime(2025, 9, 25)
     start_timestamp = int(start_date.timestamp() * 1000)
     end_timestamp = int(end_date.timestamp() * 1000)
-
     duration_days = random.randint(5, 8)
     start_date_dt = datetime.fromtimestamp(start_timestamp / 1000, tz=timezone.utc)
     task_dates = [(start_date_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(duration_days)]
-
     boundary = common_data["boundaryHierarchy"]
     codes = common_data["boundaryHierarchyCode"]
-
     created_time = int(time.time() * 1000)
+    
+    # Generate random distribution data for aggregation queries
+    total_administered_resources = random.randint(50, 500)  # Added for ES aggregation field
 
+    start_date = datetime(2025, 9, 20)
+    end_date = datetime(2025, 9, 25)
+    base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
+    date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
+    
     return {
         "_index": PROJECT_INDEX,
         "_id": project_id + SETTINGS.CAMPAIGN.tenant_id,
@@ -1364,11 +1369,12 @@ def generate_project(common_data, user_id):
                 "projectTypeId": c.project_type_id,
                 "@timestamp": timestamp,
                 "createdBy": user_id,
-                "tenantId": SETTINGS.CAMPAIGN.tenant_id
+                "tenantId": SETTINGS.CAMPAIGN.tenant_id,
+                "date": date_str,  # Added: Extract date part (YYYY-MM-DD) for date_histogram aggregation
+                "total_administered_resources": total_administered_resources  # Added: Field for sum aggregation in ES query
             }
         }
     }
-
 def generate_population_coverage_summary(common_data, user_id):
     c = SETTINGS.CAMPAIGN
     boundary = common_data["boundaryHierarchy"]
