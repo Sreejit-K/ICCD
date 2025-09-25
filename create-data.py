@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import time
 import requests
 import logging
+from random import choices
 
 # ========================
 # Logging
@@ -366,16 +367,67 @@ def getSharedData(user_id, loop_index):
 # Generators (ONLY boundary/latlon logic changed to use common_data)
 # ========================
 
-def generate_project_task(common_data, individual_client_ref_id, individual_id):
-    campaign_id = "43d8cfbe-17d6-46f0-a960-2f959b9e23b9"
-    campaign_number = "CMP-2025-09-18-006990"
-    project_type = "MR-DN"
-    project_type_id = "ea1bb2e7-06d8-4fe4-ba1e-f4a6363a21be"
 
+# --- helper: pick a consistent pair for status/adminStatus ---
+def _pick_status_and_admin():
+    """
+    Returns (status, administrationStatus) using your observed frequencies and enums.
+
+    Observed (approx) counts you shared:
+      ADMINISTRATION_SUCCESS ≫ ADMINISTRATION_FAILED > CLOSED_HOUSEHOLD > BENEFICIARY_REFUSED ...
+    We'll bias toward those but keep everything valid.
+    """
+    # Weighted pool for the *primary* status you aggregate on
+    primary_pool = [
+        ("ADMINISTRATION_SUCCESS", 1000),
+        ("ADMINISTRATION_FAILED",    7),
+        ("CLOSED_HOUSEHOLD",         6),
+        ("BENEFICIARY_REFUSED",      3),
+        ("BENEFICIARY_REFERRED",     1),
+        ("BENEFICIARY_INELIGIBLE",   1),
+        ("NOT_ADMINISTERED",         1),
+        ("DELIVERED",                1),
+        ("INELIGIBLE",               1),
+    ]
+    labels, weights = zip(*primary_pool)
+    picked = choices(labels, weights=weights, k=1)[0]
+
+    # Map to administrationStatus to keep things coherent.
+    # Many of your docs use ADMINISTRATION_SUCCESS/FAILED for both fields.
+    if picked in ("ADMINISTRATION_SUCCESS", "ADMINISTRATION_FAILED"):
+        status = picked
+        admin = picked
+    elif picked == "DELIVERED":
+        status = "DELIVERED"
+        admin  = "ADMINISTRATION_SUCCESS"
+    elif picked == "NOT_ADMINISTERED":
+        status = "NOT_ADMINISTERED"
+        admin  = "ADMINISTRATION_FAILED"
+    elif picked == "CLOSED_HOUSEHOLD":
+        status = "CLOSED_HOUSEHOLD"
+        admin  = "NOT_ADMINISTERED"   # alternative valid pairing
+    elif picked in ("INELIGIBLE", "BENEFICIARY_INELIGIBLE"):
+        status = "INELIGIBLE"
+        admin  = "NOT_ADMINISTERED"
+    elif picked == "BENEFICIARY_REFUSED":
+        status = "BENEFICIARY_REFUSED"
+        admin  = "NOT_ADMINISTERED"
+    elif picked == "BENEFICIARY_REFERRED":
+        status = "BENEFICIARY_REFERRED"
+        admin  = "NOT_ADMINISTERED"
+    else:
+        # safe default
+        status = "ADMINISTRATION_SUCCESS"
+        admin  = "ADMINISTRATION_SUCCESS"
+
+    return status, admin
+
+
+def generate_project_task(common_data, individual_client_ref_id, individual_id):
+    c = SETTINGS.CAMPAIGN
     boundary = common_data["boundaryHierarchy"]
     codes = common_data["boundaryHierarchyCode"]
 
-    # coords consistent with this boundary
     latitude, longitude = pick_lat_lon_for_boundary(boundary)
 
     now = datetime.now(timezone.utc)
@@ -385,7 +437,6 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
     synced_time = last_modified_time - random.randint(100, 1000)
     synced_timestamp_iso = datetime.fromtimestamp(synced_time / 1000, timezone.utc).isoformat().replace('+00:00', 'Z')
 
-    _id = str(uuid.uuid4())
     client_reference_id = str(uuid.uuid4())
     task_client_reference_id = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
@@ -403,17 +454,26 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
 
     project_id = f"PT-{now.strftime('%Y-%m-%d')}-{random.randint(900000, 999999):06d}"
 
+    # deliveredTo distribution from your aggregates (~64% / 36%)
+    delivered_to = choices(["HOUSEHOLD", "INDIVIDUAL"], weights=[64, 36], k=1)[0]
+
+    # Mostly DELIVERY; keep a small share of REGISTRATION if you use that in UI
+    task_type = choices(["DELIVERY", "REGISTRATION"], weights=[90, 10], k=1)[0]
+
+    # status & administrationStatus (consistent with your enums and counts)
+    status, administration_status = _pick_status_and_admin()
+
     additional_details_options = [
         {
             "houseStructureTypes": random.choice(["REEDS", "CLAY", "METAL", "GLASS", "CEMENT"]),
             "children": random.randint(0, 3),
-            "latitude": "11.094015445728362",
+            "latitude": str(latitude),
             "isVulnerable": True,
             "test_b9aa6f50056e": "test_dcfafb1be02f",
             "cycleIndex": "01",
             "noOfRooms": random.randint(1, 15),
             "pregnantWomen": random.randint(0, 1),
-            "longitude": "4.41527528930878"
+            "longitude": str(longitude)
         },
         {
             "memberCount": str(random.randint(1, 3)),
@@ -425,9 +485,7 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
         }
     ]
     additional_details = random.choice(additional_details_options)
-    administration_status = "ADMINISTRATION_SUCCESS"
     delivery_comments = random.choice(["SUCCESSFUL_DELIVERY", None])
-
     complex_id = f"{client_reference_id}{individual_client_ref_id}mz"
 
     return {
@@ -444,13 +502,13 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "administrationStatus": administration_status,
                 "syncedTime": synced_time,
                 "latitude": latitude,
-                "projectType": project_type,
+                "projectType": c.project_type,
                 "individualId": None,
                 "clientReferenceId": client_reference_id,
                 "geoPoint": [longitude, latitude],
                 "productName": product_name,
                 "householdId": common_data["household_id"],
-                "taskType": "DELIVERY",
+                "taskType": task_type,
                 "syncedDate": random_date_str(),
                 "taskClientReferenceId": task_client_reference_id,
                 "createdTime": last_modified_time,
@@ -460,8 +518,8 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "locationAccuracy": random.choice([65.67, None, round(random.uniform(10.0, 100.0), 2)]),
                 "quantity": 1,
                 "projectBeneficiaryClientReferenceId": individual_client_ref_id,
-                "campaignId": campaign_id,
-                "deliveredTo": "HOUSEHOLD",
+                "campaignId": c.campaign_id,
+                "deliveredTo": delivered_to,
                 "lastModifiedBy": str(uuid.uuid4()),
                 "memberCount": random.randint(1, 3),
                 "localityCode": most_specific_locality_code(codes, boundary),
@@ -471,17 +529,18 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "additionalDetails": additional_details,
                 "userAddress": None,
                 "isDelivered": random.choice([True, False]),
-                "projectTypeId": project_type_id,
+                "projectTypeId": c.project_type_id,
                 "@timestamp": timestamp_iso,
                 "productVariant": random.choice(product_variants),
                 "createdBy": str(uuid.uuid4()),
-                "tenantId": "dev",
+                "tenantId": SETTINGS.CAMPAIGN.tenant_id,
                 "projectName": common_data["projectName"],
-                "campaignNumber": campaign_number,
+                "campaignNumber": c.campaign_number,
                 "projectId": project_id,
                 "taskId": project_id,
                 "deliveryComments": delivery_comments,
-                "status": administration_status
+                # keep both fields present as in your sample/doc shape
+                "status": status
             }
         }
     }
