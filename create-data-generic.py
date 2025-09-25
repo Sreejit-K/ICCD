@@ -18,7 +18,7 @@ import time
 import requests
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Tuple, Optional, List, Any
+from typing import Dict, Tuple, Optional, List, Any, Union
 
 # ========================
 # Logging
@@ -138,6 +138,13 @@ HOUSEHOLD_COVERAGE_DAILY_ICCD_INDEX = "household-coverage-daily-iccd-v2"
 HOUSEHOLD_COVERAGE_SUMMARY_ICCD_INDEX = "household-coverage-summary-iccd"
 INELIGIBLE_SUMMARY_INDEX = "ineligible-summary-v2"
 USER_SYNC_INDEX = "user-sync-index-v1"
+REFERRAL_INDEX = "referral-index-v1"
+SIDE_EFFECT_INDEX = "side-effect-index-v1"
+CENSUS_INDEX = "census-index-v1"
+PLAN_INDEX = "plan-index-v1"
+HF_REFERRAL_INDEX = "hf-referral-index-v1"
+STOCK_RECON_INDEX = "stock-reconciliation-index-v1"
+PLAN_FACILITY_INDEX = "plan-facility-index-v1"
 
 # ========================
 # File Paths
@@ -157,10 +164,13 @@ HOUSEHOLD_COVERAGE_DAILY_ICCD_FILE = "bulk_household_coverage_daily_iccd.jsonl"
 HOUSEHOLD_COVERAGE_SUMMARY_ICCD_FILE = "bulk_household_coverage_summary_iccd.jsonl"
 INELIGIBLE_SUMMARY_FILE = "bulk_ineligible_summary.jsonl"
 USER_SYNC_FILE = "bulk_user_sync.jsonl"
-
-# ========================
-# USER-EDITABLE LOCATION INPUTS (moved into GeoConfig)
-# ========================
+REFERRAL_FILE = "bulk_referrals.jsonl"
+SIDE_EFFECT_FILE = "bulk_side_effects.jsonl"
+CENSUS_FILE = "bulk_census.jsonl"
+PLAN_FILE = "bulk_plan.jsonl"
+HF_REFERRAL_FILE  = "bulk_hf_referrals.jsonl"
+STOCK_RECON_FILE  = "bulk_stock_reconciliation.jsonl"
+PLAN_FACILITY_FILE = "bulk_plan_facilities.jsonl"
 
 # ========================
 # Boundary seeds (unchanged)
@@ -317,12 +327,61 @@ def random_timestamp_range(start = datetime(2025, 9, 20), end = datetime(2025, 9
     random_ts = random.randint(start_ts, end_ts)
     return random_ts * 1000
 
-def random_date_str(start_year=2025, end_year=2025):
-    start_date = datetime(start_year, 9, 20)
-    end_date = datetime(end_year, 9, 25)
-    return random_date(start_date, end_date).strftime('%Y-%m-%d')
+# def random_date_str(start_year=2025, end_year=2025):
+#     start_date = datetime(start_year, 9, 20)
+#     end_date = datetime(end_year, 9, 25)
+#     return random_date(start_date, end_date).strftime('%Y-%m-%d')
 
-def most_specific_locality_code(codes: dict, hierarchy: dict):
+from datetime import datetime, timedelta, timezone
+
+def random_date_str(a=None, b=None) -> str:
+    """
+    Flexible helper:
+      - random_date_str(2025, 2025) -> uses year bounds (keeps your old behavior: Sep 20..25)
+      - random_date_str(datetime_obj) -> picks a date in [datetime_obj - 3d, datetime_obj + 3d]
+      - random_date_str(datetime_start, datetime_end) -> picks a date in [start, end]
+      - random_date_str() -> defaults to this year Sep 20..25
+    """
+    # Case 1: either argument is a datetime -> treat as datetime bounds
+    if isinstance(a, datetime) or isinstance(b, datetime):
+        if isinstance(a, datetime) and isinstance(b, datetime):
+            start = a
+            end = b
+        elif isinstance(a, datetime) and b is None:
+            # symmetric ±3 days around 'a'
+            start = a - timedelta(days=3)
+            end = a + timedelta(days=3)
+        elif a is None and isinstance(b, datetime):
+            start = b - timedelta(days=3)
+            end = b + timedelta(days=3)
+        else:
+            # one is datetime, the other is not; default a 6-day window around the datetime
+            dt = a if isinstance(a, datetime) else b
+            start = dt - timedelta(days=3)
+            end = dt + timedelta(days=3)
+
+        # normalize if inverted
+        if end < start:
+            start, end = end, start
+
+    else:
+        # Case 2: legacy behavior with year ints (or None)
+        start_year = a if isinstance(a, int) else 2025
+        end_year = b if isinstance(b, int) else start_year
+        start = datetime(start_year, 9, 20)
+        end = datetime(end_year, 9, 25)
+
+    # clamp to UTC (optional)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+
+    # reuse your existing random_date()
+    return random_date(start, end).strftime('%Y-%m-%d')
+
+
+def most_specific_locality_code(codes: Dict[str, str], hierarchy: Dict[str, str]) -> Optional[str]:
     """Pick the most specific available code in the usual order."""
     for key in ["village", "locality", "administrativeProvince", "district", "province", "country"]:
         if key in codes and codes[key] and key in hierarchy:
@@ -332,7 +391,7 @@ def most_specific_locality_code(codes: dict, hierarchy: dict):
             return codes[k]
     return None
 
-def boundary_slice(h, c, level: str):
+def boundary_slice(h: Dict[str, str], c: Dict[str, str], level: str):
     """
     Slice boundary to a given level (country/province/district/administrativeProvince/locality/village)
     """
@@ -344,7 +403,7 @@ def boundary_slice(h, c, level: str):
     c2 = {k: v for k, v in c.items() if k in order[:idx] and v}
     return h2, c2
 
-def _coords_from_user_locations(hierarchy: dict, user_mappings: List[Dict[str, Any]]):
+def _coords_from_user_locations(hierarchy: Dict[str, Any], user_mappings: List[Dict[str, Any]]):
     """Try exact match from USER_LOCATION_COORDS."""
     def matches(entry):
         m = entry.get("match", {})
@@ -361,7 +420,7 @@ def _random_in_country(country: str, geo_cfg: GeoConfig):
     lat_rng, lon_rng = geo_cfg.COUNTRY_LATLON_RANGES.get(country, geo_cfg.COUNTRY_LATLON_RANGES.get(geo_cfg.DEFAULT_COUNTRY))
     return round(random.uniform(*lat_rng), 6), round(random.uniform(*lon_rng), 6)
 
-def pick_lat_lon_for_boundary(hierarchy: dict, geo_cfg: GeoConfig = SETTINGS.GEO) -> Tuple[float, float]:
+def pick_lat_lon_for_boundary(hierarchy: Dict[str, Any], geo_cfg: GeoConfig = SETTINGS.GEO) -> Tuple[float, float]:
     """Single place that controls how lat/lon are chosen."""
     # 0) Forced—use the same lat/lon everywhere
     if geo_cfg.FORCE_COORDS is not None:
@@ -379,7 +438,7 @@ def pick_lat_lon_for_boundary(hierarchy: dict, geo_cfg: GeoConfig = SETTINGS.GEO
 def clean_source(source):
     return {k: v for k, v in source.items() if not callable(v)}
 
-def write_bulk_file(data, file_path):
+def write_bulk_file(data: List[Dict[str, Any]], file_path: str):
     with open(file_path, 'w') as f:
         for item in data:
             f.write(json.dumps({"index": {"_index": item["_index"], "_id": item["_id"]}}) + '\n')
@@ -406,6 +465,325 @@ def get_resp(url, es=False):
             failed = True
         time.sleep(SETTINGS.retry_delay)
     return None
+
+def weighted_bool(true_ratio=0.9):
+    return random.random() < true_ratio
+
+def iso_z(dt: Optional[datetime] = None) -> str:
+    dt = dt or datetime.now(timezone.utc)
+    # samples show a 'Z' suffix and nanoseconds sometimes; we keep simple ISO + Z
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def ms(dt: Optional[datetime] = None) -> int:
+    dt = dt or datetime.now(timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+def make_id() -> str:
+    return str(uuid.uuid4())
+
+def r2(x):
+    # keep sample-like precision for floats
+    return round(float(x), 2)
+
+def build_jurisdiction_mapping_from_codes(codes: Dict[str, str]) -> Optional[Dict[str, str]]:
+    """
+    Map your boundaryHierarchyCode to the exact keys used in samples:
+    COUNTRY, PROVINCE, DISTRICT, ADMINSTRATIVEPOST, LOCALITY, VILLAGE
+    """
+    mapping: Dict[str, str] = {}
+    if "country" in codes:                   mapping["COUNTRY"] = codes["country"]
+    if "province" in codes:                  mapping["PROVINCE"] = codes["province"]
+    if "district" in codes:                  mapping["DISTRICT"] = codes["district"]
+    if "administrativeProvince" in codes:    mapping["ADMINSTRATIVEPOST"] = codes["administrativeProvince"]
+    if "locality" in codes:                  mapping["LOCALITY"] = codes["locality"]
+    if "village" in codes:                   mapping["VILLAGE"] = codes["village"]
+    return mapping or None
+
+# keep a simple in-memory counter; you can seed from ENV/SETTINGS if needed
+_SR_SEQ = random.randint(80_000, 99_999)  # looks like 6 digits in your samples
+
+def next_sr_id(at: datetime) -> str:
+    global _SR_SEQ
+    _SR_SEQ += 1
+    return f"SR-{at.strftime('%Y-%m-%d')}-{_SR_SEQ:06d}"
+
+BOUNDARY_ORDER = ["country", "province", "district", "administrativeProvince", "locality", "village"]
+
+def build_boundary_ancestral_path(codes: Dict[str, str], hierarchy: Dict[str, str]) -> str:
+    """
+    Join codes from country→…→most-specific present in this slice.
+    Matches samples like: "MICROPLAN_MO|...|MICROPLAN_MO_17_01_01_03_01_KE_AKWARA_HEALTH_POST"
+    """
+    parts: List[str] = []
+    for k in BOUNDARY_ORDER:
+        if k in hierarchy and k in codes and codes[k]:
+            parts.append(codes[k])
+    return "|".join(parts) if parts else ""
+
+def random_facility_id() -> str:
+    # Sample: F-2025-07-31-008941
+    dt = datetime.now().strftime("%Y-%m-%d")
+    return f"F-{dt}-{random.randint(890000, 999999):06d}"
+
+def maybe_service_boundaries(codes_pool: List[str]) -> str:
+    """
+    Build serviceBoundaries as:
+      - "" (most docs), or
+      - a CSV string of 1..N codes.
+    """
+    if random.random() < 0.65:
+        return ""  # most docs in samples use empty string
+    pick = random.sample(codes_pool, k=min(len(codes_pool), random.randint(1, min(8, len(codes_pool) or 1))))
+    return ",".join(pick) if pick else ""
+
+PLAN_RESOURCE_TYPES = [
+    # Core targets / totals
+    "TOTAL_TARGET_POPULATION",
+    "TOTAL_SPAQ_REQUIRED",
+    "TOTAL_SPAQ_REQUIRED_WITH_BUFFER",
+    "TOTAL_SPAQ_1_FOR_AGE_3_TO_11_MONTHS",
+    "TOTAL_SPAQ_1_FOR_AGE_3_TO_11_MONTHS_WITH_BUFFER",
+    "TOTAL_SPAQ_2_FOR_AGE_12_TO_59_MONTHS",
+    "TOTAL_SPAQ_2_FOR_AGE_12_TO_59_MONTHS_WITH_BUFFER",
+
+    # Teams & supervisors (household + fixed post; registration + distribution)
+    "NO_OF_HOUSEHOLD_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN",
+    "NO_OF_HOUSEHOLD_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY",
+    "NO_OF_HOUSEHOLD_REGISTRATION_TEAM_MEMBERS_PER_BOUNDARY",
+    "NO_OF_SUPERVISORS_FOR_HOUSEHOLD_REGISTRATION_TEAM_PER_BOUNDARY",
+
+    "NO_OF_HOUSEHOLD_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN",
+    "NO_OF_HOUSEHOLD_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY",
+    "NO_OF_HOUSEHOLD_DISTRIBUTION_TEAM_MEMBERS_PER_BOUNDARY",
+    "NO_OF_SUPERVISORS_FOR_HOUSEHOLD_DISTRIBUTION_TEAM_PER_BOUNDARY",
+
+    "NO_OF_FIXED_POST_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN",
+    "NO_OF_FIXED_POST_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY",
+    "NO_OF_FIXED_POST_REGISTRATION_TEAM_MEMBERS_PER_BOUNDARY",
+    "NO_OF_FIXED_POST_REGISTRATION_TEAM_SUPERVISORS_PER_BOUNDARY",
+
+    "NO_OF_FIXED_POST_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN",
+    "NO_OF_FIXED_POST_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY",
+    "NO_OF_FIXED_POST_DISTRIBUTION_TEAM_MEMBERS_PER_BOUNDARY",
+    "NO_OF_FIXED_POST_DISTRIBUTION_TEAM_SUPERVISORS_PER_BOUNDARY",
+
+    # Stationary per-boundary (household vs fixed post; pens/chalk/bags)
+    "TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_REGISTRATION_TEAM",
+    "TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_REGISTRATION_TEAM",
+    "TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_REGISTRATION_TEAM",
+
+    "TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_DISTRIBUTION_TEAM",
+    "TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_DISTRIBUTION_TEAM",
+    "TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_DISTRIBUTION_TEAM",
+
+    "TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_REGISTRATION_TEAM",
+    "TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_REGISTRATION_TEAM",
+    "TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_REGISTRATION_TEAM",
+
+    "TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_DISTRIBUTION_TEAM",
+    "TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_DISTRIBUTION_TEAM",
+    "TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_DISTRIBUTION_TEAM",
+]
+
+def _res(rt, val):
+    return {
+        "activityCode": None,
+        "id": make_id(),
+        "estimatedNumber": val,
+        "resourceType": rt
+    }
+
+def build_stock_recon_additional_fields(received: float, issued: float,
+                                        returned: float, lost: float,
+                                        damaged: float, in_hand: float) -> dict:
+    f = lambda v: f"{float(v):.1f}"  # strings with one decimal place
+    return {
+        "schema": "StockReconciliation",
+        "fields": [
+            {"value": f(received), "key": "received"},
+            {"value": f(issued),   "key": "issued"},
+            {"value": f(returned), "key": "returned"},
+            {"value": f(lost),     "key": "lost"},
+            {"value": f(damaged),  "key": "damaged"},
+            {"value": f(in_hand),  "key": "inHand"},
+        ],
+        "version": 1
+    }
+
+def build_plan_resources():
+    """
+    Produces a resources list similar to your samples with consistent internal math.
+    """
+    # Target pop similar scale to samples
+    tp = random.choice([70, 80, 90, 100, 110, 120])
+    # Reasonable split to match examples
+    age_3_11   = int(tp * random.choice([0.4, 0.5, 0.6]))
+    age_12_59  = tp - age_3_11
+
+    # SPAQ basics (toy math to match magnitudes in samples)
+    spaq1 = age_3_11 * random.choice([1, 1, 1, 2/3, 3/4])
+    spaq2 = age_12_59 * random.choice([1, 1.5, 2])
+    spaq_required = spaq1 + spaq2
+    buffer_factor = random.choice([3.5, 4.0])
+    spaq1_buf = spaq1 * buffer_factor
+    spaq2_buf = spaq2 * buffer_factor
+    spaq_total_buf = spaq_required * buffer_factor
+
+    # Teams (fractions per boundary)
+    reg_teams_campaign  = r2(tp / random.choice([180, 200]))
+    reg_teams_day       = r2(reg_teams_campaign * 4.0)
+    reg_team_members    = r2(reg_teams_campaign * random.choice([50, 55, 60]))
+    reg_supervisors     = r2(reg_teams_campaign * 0.8)
+
+    dist_teams_campaign = random.choice([None, r2(tp / 250.0)])
+    dist_teams_day      = random.choice([None, r2((dist_teams_campaign or 0) * 4.0)])
+    dist_team_members   = random.choice([None, r2((dist_teams_campaign or 0) * 55.0)])
+    dist_supervisors    = random.choice([None, r2((dist_teams_campaign or 0) * 0.7)])
+
+    # Fixed post (smaller)
+    fpr_campaign = r2(tp / random.choice([320, 360, 400]))
+    fpr_day      = r2(fpr_campaign * random.choice([4.5, 5.0]))
+    fpr_members  = r2(fpr_campaign * 24.0)
+    fpr_sup      = r2(fpr_campaign * random.choice([0.05, 0.08]))
+    fpd_campaign = r2(tp / random.choice([3500, 5000]))
+    fpd_day      = r2(fpd_campaign * random.choice([60, 70]))
+    fpd_members  = r2(fpd_campaign * 60.0)
+    fpd_sup      = r2(fpd_campaign * random.choice([0.05, 0.1]))
+
+    # Stationary (scale like examples)
+    pens_household_reg  = r2(reg_team_members * 0.8)
+    chalk_household_reg = r2(reg_team_members * 0.8)
+    bags_household_reg  = r2(reg_team_members * 0.95)
+
+    pens_household_dist  = random.choice([None, r2((dist_team_members or 0) * 0.4)])
+    chalk_household_dist = random.choice([None, r2((dist_team_members or 0) * 0.4)])
+    bags_household_dist  = random.choice([None, r2((dist_team_members or 0) * 0.45)])
+
+    pens_fixed_reg  = r2(fpr_members * 4.2)
+    chalk_fixed_reg = r2(fpr_members * 4.2)
+    bags_fixed_reg  = r2(fpr_members * 3.4)
+
+    pens_fixed_dist  = r2(fpd_members * 0.9)
+    chalk_fixed_dist = r2(fpd_members * 0.9)
+    bags_fixed_dist  = r2(fpd_members * 0.7)
+
+    resources = [
+        _res("TOTAL_TARGET_POPULATION", tp),
+        _res("TOTAL_SPAQ_REQUIRED", int(spaq_required)),
+        _res("TOTAL_SPAQ_REQUIRED_WITH_BUFFER", int(spaq_total_buf)),
+        _res("TOTAL_SPAQ_1_FOR_AGE_3_TO_11_MONTHS", int(spaq1)),
+        _res("TOTAL_SPAQ_1_FOR_AGE_3_TO_11_MONTHS_WITH_BUFFER", int(spaq1_buf)),
+        _res("TOTAL_SPAQ_2_FOR_AGE_12_TO_59_MONTHS", int(spaq2)),
+        _res("TOTAL_SPAQ_2_FOR_AGE_12_TO_59_MONTHS_WITH_BUFFER", int(spaq2_buf)),
+
+        _res("NO_OF_HOUSEHOLD_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN", reg_teams_campaign),
+        _res("NO_OF_HOUSEHOLD_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY", reg_teams_day),
+        _res("NO_OF_HOUSEHOLD_REGISTRATION_TEAM_MEMBERS_PER_BOUNDARY", reg_team_members),
+        _res("NO_OF_SUPERVISORS_FOR_HOUSEHOLD_REGISTRATION_TEAM_PER_BOUNDARY", reg_supervisors),
+
+        _res("NO_OF_HOUSEHOLD_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN", dist_teams_campaign),
+        _res("NO_OF_HOUSEHOLD_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY", dist_teams_day),
+        _res("NO_OF_HOUSEHOLD_DISTRIBUTION_TEAM_MEMBERS_PER_BOUNDARY", dist_team_members),
+        _res("NO_OF_SUPERVISORS_FOR_HOUSEHOLD_DISTRIBUTION_TEAM_PER_BOUNDARY", dist_supervisors),
+
+        _res("NO_OF_FIXED_POST_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN", fpr_campaign),
+        _res("NO_OF_FIXED_POST_REGISTRATION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY", fpr_day),
+        _res("NO_OF_FIXED_POST_REGISTRATION_TEAM_MEMBERS_PER_BOUNDARY", fpr_members),
+        _res("NO_OF_FIXED_POST_REGISTRATION_TEAM_SUPERVISORS_PER_BOUNDARY", fpr_sup),
+
+        _res("NO_OF_FIXED_POST_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_THE_CAMPAIGN", fpd_campaign),
+        _res("NO_OF_FIXED_POST_DISTRIBUTION_TEAMS_PER_BOUNDARY_FOR_ONE_DAY", fpd_day),
+        _res("NO_OF_FIXED_POST_DISTRIBUTION_TEAM_MEMBERS_PER_BOUNDARY", fpd_members),
+        _res("NO_OF_FIXED_POST_DISTRIBUTION_TEAM_SUPERVISORS_PER_BOUNDARY", fpd_sup),
+
+        _res("TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_REGISTRATION_TEAM", pens_household_reg),
+        _res("TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_REGISTRATION_TEAM", chalk_household_reg),
+        _res("TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_REGISTRATION_TEAM", bags_household_reg),
+
+        _res("TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_DISTRIBUTION_TEAM", pens_household_dist),
+        _res("TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_DISTRIBUTION_TEAM", chalk_household_dist),
+        _res("TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_HOUSEHOLD_DISTRIBUTION_TEAM", bags_household_dist),
+
+        _res("TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_REGISTRATION_TEAM", pens_fixed_reg),
+        _res("TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_REGISTRATION_TEAM", chalk_fixed_reg),
+        _res("TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_REGISTRATION_TEAM", bags_fixed_reg),
+
+        _res("TOTAL_NO_OF_PENS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_DISTRIBUTION_TEAM", pens_fixed_dist),
+        _res("TOTAL_NO_OF_CHALKS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_DISTRIBUTION_TEAM", chalk_fixed_dist),
+        _res("TOTAL_NO_OF_BAGS_REQUIRED_PER_BOUNDARY_FOR_FIXED_POST_DISTRIBUTION_TEAM", bags_fixed_dist),
+    ]
+
+    # Keep only a subset sometimes (your samples vary by document)
+    keep_ratio = random.choice([0.45, 0.6, 0.75, 1.0])
+    resources = [r for r in resources if random.random() <= keep_ratio]
+
+    return resources
+
+def emit_plan_facilities_for_all_levels(common_data: Dict[str, Any], user_id: str,
+                                        min_per_level: int = 1, max_per_level: int = 1) -> List[Dict[str, Any]]:
+    """
+    For the given boundary, create plan-facility docs at every existing level:
+    country → province → district → administrativeProvince → locality → village.
+    """
+    levels = ["country", "province", "district", "administrativeProvince", "locality", "village"]
+    out: List[Dict[str, Any]] = []
+
+    base_h = common_data["boundaryHierarchy"]
+    base_c = common_data["boundaryHierarchyCode"]
+
+    for lvl in levels:
+        if lvl not in base_h:
+            continue
+
+        h_slice, c_slice = boundary_slice(base_h, base_c, lvl)
+
+        cd = dict(common_data)
+        cd["boundaryHierarchy"] = h_slice
+        cd["boundaryHierarchyCode"] = c_slice
+        cd["localityCode"] = most_specific_locality_code(c_slice, h_slice) or c_slice.get("country")
+
+        for _ in range(random.randint(min_per_level, max_per_level)):
+            # expects you have generate_plan_facility(...) implemented elsewhere
+            doc = generate_plan_facility(cd, user_id)
+            if doc:
+                out.append(doc)
+
+    return out
+
+def emit_hf_referrals_for_all_levels(common_data: Dict[str, Any], user_id: str,
+                                     min_per_level: int = 1, max_per_level: int = 2) -> List[Dict[str, Any]]:
+    """
+    For the given boundary in common_data, create HF-referral docs at every boundary depth
+    (country, province, district, administrativeProvince, locality, village) that exists.
+    Reuses your generate_hf_referral() and ensures localityCode matches the slice.
+    """
+    levels = ["country", "province", "district", "administrativeProvince", "locality", "village"]
+    out: List[Dict[str, Any]] = []
+
+    base_h = common_data["boundaryHierarchy"]
+    base_c = common_data["boundaryHierarchyCode"]
+
+    for lvl in levels:
+        if lvl not in base_h:
+            continue
+
+        h_slice, c_slice = boundary_slice(base_h, base_c, lvl)
+        loc_code = most_specific_locality_code(c_slice, h_slice) or c_slice.get("country")
+
+        cd = dict(common_data)
+        cd["boundaryHierarchy"] = h_slice
+        cd["boundaryHierarchyCode"] = c_slice
+        cd["localityCode"] = loc_code
+
+        for _ in range(random.randint(min_per_level, max_per_level)):
+            # expects you have generate_hf_referral(...) implemented elsewhere
+            doc = generate_hf_referral(cd, user_id)
+            if doc:
+                out.append(doc)
+
+    return out
+
+
 
 # ========================
 # Shared data per main loop (boundary locked here)
@@ -1580,6 +1958,1047 @@ def generate_user_sync(common_data, user_id):
         "sort": [ts_ms]
     }
 
+
+def generate_referral(common_data, user_id, individual_id):
+    """
+    Generate a referral-index-v1 document aligned to the sample you shared.
+    - Uses campaign + tenant from SETTINGS
+    - Mirrors nested 'referral' object (clientAuditDetails/auditDetails, reasons, ids, etc.)
+    - Computes age in *months* from dateOfBirth (like your sample)
+    """
+    c = SETTINGS.CAMPAIGN
+    boundary = common_data["boundaryHierarchy"]
+    codes = common_data["boundaryHierarchyCode"]
+
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    ts_iso = now.isoformat().replace("+00:00", "Z")
+
+    # random DOB (years 1980..2024), then derive age in months
+    dob_ms = random_epoch(1980, 2024) * 1000
+    age_months = int((now_ms - dob_ms) / (30.44 * 24 * 3600 * 1000))  # ~months
+
+    # randoms to match sample feel
+    gender = random.choice(["MALE", "FEMALE"])
+    reasons_pool = ["fever", "vomiting", "convulsions", "rash", "weakness", "loss_of_appetite"]
+    reasons = [random.choice(reasons_pool)]
+    facility_name = "Bednet L5"
+    recipient_facility_id = "F-2025-07-31-008941"  # keep stable for demo parity
+
+    # ids
+    es_id = str(uuid.uuid4())
+    client_reference_id = str(uuid.uuid4())
+    proj_beneficiary_id = f"PTB-{now.strftime('%Y-%m-%d')}-{random.randint(39130, 39999):06d}"
+    proj_beneficiary_client_ref_id = str(uuid.uuid4())
+
+    # times (mirror your sample’s audit/clientAudit usage)
+    client_audit = {
+        "lastModifiedTime": now_ms,
+        "createdBy": user_id,
+        "lastModifiedBy": user_id,
+        "createdTime": now_ms,
+    }
+    audit_details = {
+        "lastModifiedTime": now_ms + random.randint(100, 3000),
+        "createdBy": user_id,
+        "lastModifiedBy": user_id,
+        "createdTime": now_ms + random.randint(100, 3000),
+    }
+
+    return {
+        "_index": REFERRAL_INDEX,
+        "_id": es_id,
+        "_score": None,
+        "_source": {
+            "ingestionTime": (now.isoformat() + "Z"),
+            "Data": {
+                "boundaryHierarchy": boundary,
+                "role": "DISTRIBUTOR",
+                "taskDates": random_date_str(),                # e.g., "2025-09-21"
+                "gender": gender,
+                "campaignId": c.campaign_id,
+                "projectType": c.project_type,
+                "dateOfBirth": dob_ms,
+                "nameOfUser": common_data["nameOfUser"],
+                "individualId": individual_id,
+                "userName": common_data["userName"],
+                "boundaryHierarchyCode": codes,
+                "additionalDetails": {"cycleIndex": "01"},
+                "userAddress": None,
+                "projectTypeId": c.project_type_id,
+                "referral": {
+                    "reasons": reasons,
+                    "rowVersion": 1,
+                    "additionalFields": None,
+                    "projectBeneficiaryClientReferenceId": proj_beneficiary_client_ref_id,
+                    "referrerId": None,
+                    "clientReferenceId": client_reference_id,
+                    "sideEffect": None,
+                    "projectBeneficiaryId": proj_beneficiary_id,
+                    "clientAuditDetails": client_audit,
+                    "recipientType": "FACILITY",
+                    "isDeleted": False,
+                    "auditDetails": audit_details,
+                    "tenantId": c.tenant_id,
+                    "recipientId": recipient_facility_id,
+                    "id": es_id,  # make nested id match ES _id (like your sample)
+                },
+                "syncedDate": random_date_str(),
+                "@timestamp": ts_iso,
+                "tenantId": c.tenant_id,
+                "facilityName": facility_name,
+                "projectName": common_data["projectName"],
+                "campaignNumber": c.campaign_number,
+                "projectId": common_data["projectId"],
+                "age": age_months,
+            },
+        },
+        "sort": [audit_details["lastModifiedTime"]],
+    }
+    
+def generate_side_effect(common_data, user_id, individual_id, task_id=None, task_client_reference_id=None):
+    """
+    Emit a side-effect-index-v1 document matching the sample shape.
+    - Reads campaign/tenant/geo from SETTINGS and common_data
+    - Adds both a flat 'symptoms' string and nested sideEffect.symptoms [array]
+    - Computes age in months from DOB
+    - If you pass a project task's ids, they are reused (else random)
+    """
+    c = SETTINGS.CAMPAIGN
+    boundary = common_data["boundaryHierarchy"]
+    codes = common_data["boundaryHierarchyCode"]
+
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    ts_iso = now.isoformat().replace("+00:00", "Z")
+
+    # Gender + DOB -> age in months (like your sample)
+    gender = random.choice(["MALE", "FEMALE"])
+    dob_ms = random_epoch(1975, 2025) * 1000  # broad range like samples
+    age_months = int((now_ms - dob_ms) / (30.44 * 24 * 3600 * 1000))
+
+    # Symptom vocabulary exactly as in your sample set (including the 'VOMITTING' spelling)
+    symptoms_vocab = ["ABDOMINAL_PAIN", "FEVER", "DIARRHOEA", "WEAKNESS", "VOMITTING", "SKIN_REACTION"]
+    symptom = random.choice(symptoms_vocab)
+
+    # IDs
+    es_id = str(uuid.uuid4())
+    project_beneficiary_id = f"PTB-{now.strftime('%Y-%m-%d')}-{random.randint(40000, 40999):06d}"
+    project_beneficiary_client_ref_id = str(uuid.uuid4())
+    client_reference_id = str(uuid.uuid4())
+
+    # Optionally bind to a real project task (preferred) else synthesize
+    task_id = task_id or f"PT-{now.strftime('%Y-%m-%d')}-{random.randint(90000, 99999):06d}"
+    task_client_reference_id = task_client_reference_id or str(uuid.uuid4())
+
+    client_audit = {
+        "lastModifiedTime": now_ms,
+        "createdBy": user_id,
+        "lastModifiedBy": user_id,
+        "createdTime": now_ms
+    }
+    audit_details = {
+        "lastModifiedTime": now_ms + random.randint(100, 3000),
+        "createdBy": user_id,
+        "lastModifiedBy": user_id,
+        "createdTime": now_ms + random.randint(100, 3000)
+    }
+
+    locality_code = most_specific_locality_code(codes, boundary)
+
+    return {
+        "_index": SIDE_EFFECT_INDEX,
+        "_id": es_id,
+        "_score": None,
+        "_source": {
+            "ingestionTime": now.isoformat() + "Z",
+            "Data": {
+                "boundaryHierarchy": boundary,
+                "role": "DISTRIBUTOR",
+                "taskDates": random_date_str(),
+                "gender": gender,
+                "campaignId": c.campaign_id,
+                "projectType": c.project_type,
+                "localityCode": locality_code,
+                "dateOfBirth": dob_ms,
+                "individualId": individual_id,
+                "nameOfUser": common_data["nameOfUser"],
+                "boundaryHierarchyCode": codes,
+                "userName": common_data["userName"],
+                "additionalDetails": {},
+                "sideEffect": {
+                    "rowVersion": 1,
+                    "additionalFields": None,
+                    "projectBeneficiaryClientReferenceId": project_beneficiary_client_ref_id,
+                    "clientReferenceId": client_reference_id,
+                    "projectBeneficiaryId": project_beneficiary_id,
+                    "symptoms": [symptom],
+                    "clientAuditDetails": client_audit,
+                    "isDeleted": False,
+                    "taskClientReferenceId": task_client_reference_id,
+                    "auditDetails": audit_details,
+                    "tenantId": c.tenant_id,
+                    "id": es_id,             # nested id mirrors ES _id (like your sample)
+                    "taskId": task_id
+                },
+                "symptoms": symptom,         # flat field also present in your sample docs
+                "userAddress": None,
+                "projectTypeId": c.project_type_id,
+                "syncedDate": random_date_str(),
+                "@timestamp": ts_iso,
+                "projectName": common_data["projectName"],
+                "campaignNumber": c.campaign_number,
+                "projectId": common_data["projectId"],
+                "age": age_months
+            }
+        },
+        "sort": [audit_details["lastModifiedTime"]]
+    }
+
+def build_census_additional_fields(total_pop, tgt_3to11, tgt_12to59, include_latlong_opts=False):
+    """
+    Matches your sample keys and ordering.
+    Set include_latlong_opts=True to include the hidden LAT/LONG option fields (appear in some docs).
+    """
+    fields = []
+    order = 1
+
+    # Uploaded vs Confirmed total population
+    fields.append({
+        "editable": False,
+        "id": make_id(),
+        "showOnUi": True,
+        "value": total_pop,
+        "key": "UPLOADED_HCM_ADMIN_CONSOLE_TOTAL_POPULATION",
+        "order": order
+    }); order += 1
+
+    fields.append({
+        "editable": True,
+        "id": make_id(),
+        "showOnUi": True,
+        "value": total_pop,
+        "key": "CONFIRMED_HCM_ADMIN_CONSOLE_TOTAL_POPULATION",
+        "order": order
+    }); order += 1
+
+    # Target 3–11
+    fields.append({
+        "editable": False,
+        "id": make_id(),
+        "showOnUi": True,
+        "value": tgt_3to11,
+        "key": "UPLOADED_HCM_ADMIN_CONSOLE_TARGET_POPULATION_AGE_3TO11",
+        "order": order
+    }); order += 1
+
+    fields.append({
+        "editable": True,
+        "id": make_id(),
+        "showOnUi": True,
+        "value": tgt_3to11,
+        "key": "CONFIRMED_HCM_ADMIN_CONSOLE_TARGET_POPULATION_AGE_3TO11",
+        "order": order
+    }); order += 1
+
+    # Target 12–59
+    fields.append({
+        "editable": False,
+        "id": make_id(),
+        "showOnUi": True,
+        "value": tgt_12to59,
+        "key": "UPLOADED_HCM_ADMIN_CONSOLE_TARGET_POPULATION_AGE_12TO59",
+        "order": order
+    }); order += 1
+
+    fields.append({
+        "editable": True,
+        "id": make_id(),
+        "showOnUi": True,
+        "value": tgt_12to59,
+        "key": "CONFIRMED_HCM_ADMIN_CONSOLE_TARGET_POPULATION_AGE_12TO59",
+        "order": order
+    }); order += 1
+
+    # Optional hidden lat/long option fields (appear in some docs)
+    if include_latlong_opts:
+        fields.append({
+            "editable": False,
+            "id": make_id(),
+            "showOnUi": False,
+            "value": 10,
+            "key": "HCM_ADMIN_CONSOLE_TARGET_LAT_OPT",
+            "order": order
+        }); order += 1
+
+        fields.append({
+            "editable": False,
+            "id": make_id(),
+            "showOnUi": False,
+            "value": 10,
+            "key": "HCM_ADMIN_CONSOLE_TARGET_LONG_OPT",
+            "order": order
+        }); order += 1
+
+    return fields
+
+
+
+def build_boundary_ancestral_path_from_codes(codes):
+    # Build the pipe-separated path exactly like samples
+    parts = []
+    for k in ("country", "province", "district", "administrativeProvince", "locality", "village"):
+        v = codes.get(k)
+        if v:
+            parts.append(v)
+    return "|".join(parts) if parts else None
+
+def generate_census(common_data, *, boundary_code=None, with_hidden_latlong=False, with_accessibility=False,
+                    with_security=False, force_mapping=True):
+    """
+    Emit a census-index-v1 document matching provided samples.
+    - boundary_code: if None, we use the most specific code from common_data["boundaryHierarchyCode"]
+    - with_hidden_latlong: include HCM_ADMIN_CONSOLE_TARGET_LAT_OPT / LONG_OPT fields (some docs have these)
+    - with_accessibility / with_security: include the nested accessibilityDetails / securityDetails blocks like samples
+    - force_mapping: True -> include jurisdictionMapping; False -> include boundaryAncestralPath
+    """
+    c = SETTINGS.CAMPAIGN
+
+    # Decide population numbers similar to your examples
+    total_population = random.choice([100, 200, 300, 500, 1000])
+    # Split into targets (keep them <= total for realism)
+    tgt_3to11   = random.choice([30, 40, 50, 60]) if total_population >= 60 else min(40, max(30, total_population // 2))
+    tgt_12to59  = random.choice([30, 40, 50])     if total_population >= 50 else min(50, total_population // 2)
+
+    add_fields = build_census_additional_fields(total_population, tgt_3to11, tgt_12to59, include_latlong_opts=with_hidden_latlong)
+
+    # Jurisdiction info from your common_data
+    codes = common_data.get("boundaryHierarchyCode", {})
+    mapping = build_jurisdiction_mapping_from_codes(codes)
+    ancestral = build_boundary_ancestral_path_from_codes(codes)
+
+    # Facility bits from your samples (you can also draw from a facility list you maintain)
+    facility_id = random.choice([
+        "F-2025-07-31-008943", "F-2025-02-11-008917", "F-2025-05-20-009001"
+    ])
+    facility_name = random.choice(["Bednet L7", "AS Pemba", "Primary HC West"])
+
+    additional_details = {
+        "facilityId": facility_id,
+        "facilityName": facility_name
+    }
+
+    # Some docs include latitude/longitude at this level as well
+    if with_accessibility or with_hidden_latlong or random.random() < 0.4:
+        additional_details["latitude"] = 10
+        additional_details["longitude"] = 10
+
+    if with_accessibility:
+        additional_details["accessibilityDetails"] = {
+            "roadCondition": random.choice([
+                {"code": "HCM_MICROPLAN_NO_ROAD", "name": "NO_ROAD", "active": True},
+                {"code": "HCM_MICROPLAN_DIRT",    "name": "DIRT",    "active": True},
+                {"code": "HCM_MICROPLAN_GRAVEL",  "name": "GRAVEL",  "active": True},
+            ]),
+            "terrain": random.choice([
+                {"code": "HCM_MICROPLAN_PLAIN",   "name": "PLAIN",   "active": True},
+                {"code": "HCM_MICROPLAN_DESERT",  "name": "DESERT",  "active": True},
+                {"code": "HCM_MICROPLAN_FOREST",  "name": "FOREST",  "active": True},
+            ])
+        }
+
+    if with_security:
+        additional_details["securityDetails"] = {
+            "1": {"code": random.choice(["ALL_THE_TIME","OFTEN"]), "value": random.choice(["ALL_THE_TIME","OFTEN"])},
+            "2": {"code": random.choice(["EVERYDAY1","OFTEN1"]),   "value": random.choice(["EVERYDAY1","OFTEN1"])},
+        }
+
+    # Times & audit
+    created_dt = datetime.now(timezone.utc) - timedelta(minutes=random.randint(1, 60*24))
+    created_ms = ms(created_dt)
+    last_mod_ms = created_ms + random.randint(10000, 300000)
+
+    created_by = random.choice([
+        "b017d9f0-3ced-4541-86cf-91e9584499e1",
+        "fa33f72b-6cde-487e-a594-d719b90da21b"
+    ])
+    last_mod_by = random.choice([
+        "a5e20b10-31a0-4b87-a626-94efaec9df2b",
+        created_by
+    ])
+
+    # ID & boundary code
+    es_id = make_id()
+    boundary_code = boundary_code or common_data.get("localityCode") or common_data.get("boundaryCode") \
+                    or codes.get("village") or codes.get("locality") or codes.get("district")
+
+    # effective ranges (some docs show effectiveTo=0 => active; others roll forward)
+    # We'll randomly choose active vs superseded to mimic your mix.
+    is_active = random.random() < 0.7
+    effective_to = 0 if is_active else created_ms + random.randint(60_000, 2_000_000)
+
+    data_obj = {
+        "facilityAssigned": True,
+        "hierarchyType": "MICROPLAN",
+        "totalPopulation": total_population,
+        "additionalFields": add_fields,
+        "workflow": None,
+        "jurisdictionMapping": mapping if force_mapping else None,
+        "populationByDemographics": None,
+        # Samples sometimes include boundaryAncestralPath when mapping is null
+        "boundaryAncestralPath": None if force_mapping else ancestral,
+        "source": random.choice([
+            "79ee9f34-7357-43de-8714-00c82bf5b70b",
+            "a7fb45f6-c643-47f9-86a7-d3933e0163fc"
+        ]),
+        "type": "people",
+        "additionalDetails": additional_details,
+        "effectiveTo": effective_to,
+        "boundaryCode": boundary_code,
+        "@timestamp": iso_z(created_dt),
+        "auditDetails": {
+            "lastModifiedTime": last_mod_ms,
+            "createdBy": created_by,
+            "lastModifiedBy": last_mod_by,
+            "createdTime": created_ms
+        },
+        "tenantId": c.tenant_id,
+        "id": es_id,
+        "assignee": None,
+        "effectiveFrom": created_ms,
+        "status": "VALIDATED"
+    }
+
+    src = {
+        "ingestionTime": iso_z(datetime.now(timezone.utc)),
+        "Data": data_obj
+    }
+
+    return {
+        "_index": CENSUS_INDEX,
+        "_id": es_id,
+        "_score": None,
+        "_source": src,
+        "sort": [data_obj["effectiveFrom"]]
+    }
+
+def generate_plan(common_data, *, campaign_id=None, plan_config_id=None, locality_code=None, add_comment=False):
+    """
+    Create one plan-index-v1 document that mirrors your demo structure.
+    common_data: expected to carry boundaryHierarchyCode (for mapping), and optionally facility hints.
+    """
+    codes = common_data.get("boundaryHierarchyCode", {})
+    mapping = build_jurisdiction_mapping_from_codes(codes)
+
+    # Choose locality from the most specific code unless given
+    locality = locality_code or codes.get("village") or codes.get("locality")
+
+    # Facility and IDs
+    facility_id = random.choice(["F-2025-02-11-008917", "F-2025-07-31-008943"])
+    campaign_id = campaign_id or random.choice([
+        "ae8a7a19-ab74-4cf6-9db1-4cfbeb6583d8",
+        "17d06b2a-857f-4fab-aac1-bc4b2001c665",
+    ])
+    plan_config_id = plan_config_id or random.choice([
+        "a7fb45f6-c643-47f9-86a7-d3933e0163fc",
+        "79ee9f34-7357-43de-8714-00c82bf5b70b"
+    ])
+
+    # Times & audit
+    created_dt = datetime.now(timezone.utc) - timedelta(minutes=random.randint(1, 60*24))
+    created_ms = ms(created_dt)
+    last_mod_ms = created_ms + random.randint(10_000, 300_000)
+    user_id = random.choice([
+        "a5e20b10-31a0-4b87-a626-94efaec9df2b",
+        "fa33f72b-6cde-487e-a594-d719b90da21b"
+    ])
+
+    es_id = make_id()
+
+    workflow = {
+        "comments": "validate" if add_comment else None,
+        "documents": None,
+        "rating": None,
+        "action": "VALIDATE",
+        "assignes": None
+    }
+
+    data_obj = {
+        "additionalFields": None,
+        "workflow": workflow,
+        "jurisdictionMapping": mapping,
+        "campaignId": campaign_id,
+        "locality": locality,
+        "resources": build_plan_resources(),
+        "additionalDetails": {
+            "facilityId": facility_id
+        },
+        "targets": [],
+        "@timestamp": iso_z(created_dt),
+        "planConfigurationId": plan_config_id,
+        "activities": [],
+        "auditDetails": {
+            "lastModifiedTime": last_mod_ms,
+            "createdBy": user_id,
+            "lastModifiedBy": user_id,
+            "createdTime": created_ms
+        },
+        "tenantId": SETTINGS.CAMPAIGN.tenant_id,   # reuse your existing SETTINGS object
+        "id": es_id,
+        "assignee": [],
+        "status": "VALIDATED"
+    }
+
+    src = {
+        "ingestionTime": iso_z(datetime.now(timezone.utc)),
+        "Data": data_obj
+    }
+
+    return {
+        "_index": PLAN_INDEX,
+        "_id": es_id,
+        "_score": None,
+        "_source": src,
+        "sort": [data_obj["auditDetails"]["createdTime"]]
+    }
+
+def emit_plans_for_locality(common_data):
+    # 1–3 plan docs per locality
+    for k in range(random.randint(1, 3)):
+        doc = generate_plan(
+            common_data,
+            campaign_id=None,        # or pass a real ID
+            plan_config_id=None,     # or pass a real ID
+            locality_code=None,      # or set explicitly if you want
+            add_comment=(k == 0 and random.random() < 0.3),
+        )
+        plan_docs.append(doc)
+
+def build_hf_referral_additional_fields(*, coordinator_name: str, date_of_eval_ms: int,
+                                        name_of_referral: str, age_years: int, gender: str,
+                                        cycle: str = "1"):
+    """
+    Matches the sample ordering and keys for HFReferral.additionalFields.fields.
+    Keeps values as strings like in your sample.
+    """
+    return {
+        "schema": "HFReferral",
+        "fields": [
+            {"value": coordinator_name,         "key": "hfCoordinator"},
+            {"value": str(date_of_eval_ms),     "key": "dateOfEvaluation"},
+            {"value": name_of_referral,         "key": "nameOfReferral"},
+            {"value": str(age_years),           "key": "age"},
+            {"value": gender,                   "key": "gender"},
+            {"value": cycle,                    "key": "cycle"},
+        ],
+        "version": 1
+    }
+
+# def generate_hf_referral(common_data, user_id):
+#     """
+#     Emit an hf-referral-index-v1 document matching your sample shape.
+#     - Reads campaign/tenant from SETTINGS
+#     - Mirrors nested `hfReferral` block (additionalFields, times, ids)
+#     - Uses minimal boundary (country) and a MICROPLAN-like boundaryHierarchyCode
+#     """
+#     c = SETTINGS.CAMPAIGN
+#     boundary = common_data.get("boundaryHierarchy", {}) or {}
+#     codes    = common_data.get("boundaryHierarchyCode", {}) or {}
+
+#     now = datetime.now(timezone.utc)
+#     now_ms = int(now.timestamp() * 1000)
+#     ts_iso = now.isoformat().replace("+00:00", "Z")
+
+#     # Keep boundary minimal like the sample (country only)
+#     bh_country_only = {}
+#     if "country" in boundary:
+#         bh_country_only["country"] = boundary["country"]
+#     else:
+#         # fallback so the doc always has a country-level boundary
+#         bh_country_only["country"] = SETTINGS.GEO.DEFAULT_COUNTRY
+
+#     # Sample shows boundaryHierarchyCode: {"country": "MICROPLAN_MO"}
+#     # We’ll prefer your code if present, else fall back to literal "MICROPLAN_MO"
+#     bhc_country_only = {
+#         "country": codes.get("country") or "MICROPLAN_MO"
+#     }
+
+#     # User / coordinator / referral person details (pick from your name lists)
+#     coordinator = random.choice(["User with all roles", "HF Supervisor", "HF Coordinator"])
+#     referral_name = random.choice(["Kanishq", "Asha", "Samuel", "Mary"])
+#     gender = random.choice(["MALE", "FEMALE"])
+#     age_years = random.randint(1, 80)     # text sample shows "25"
+#     symptom = random.choice(["fever", "vomiting", "rash", "weakness"])  # sample uses "fever"
+
+#     # IDs
+#     es_id = make_id()
+#     client_ref_id = make_id()
+
+#     # Times (mirror your sample: clientAuditDetails earlier, auditDetails slightly later)
+#     client_time_ms = now_ms
+#     audit_time_ms  = now_ms + random.randint(150, 2500)
+
+#     # dateOfEvaluation stored as string ms in sample
+#     date_of_evaluation_ms = now_ms  # same tick; stringify later via builder
+
+#     additional_fields = build_hf_referral_additional_fields(
+#         coordinator_name=coordinator,
+#         date_of_eval_ms=date_of_evaluation_ms,
+#         name_of_referral=referral_name,
+#         age_years=age_years,
+#         gender=gender,
+#         cycle="1"
+#     )
+
+#     # userName in your sample looks like a fixed value; we’ll reuse your common_data if present
+#     user_name = common_data.get("userName") or "USR-006057"
+
+#     # Project linkages: sample repeats projectId both at root and inside nested hfReferral
+#     project_id = common_data.get("projectId") or make_id()
+
+#     src = {
+#         "ingestionTime": iso_z(datetime.now(timezone.utc)),
+#         "Data": {
+#             "boundaryHierarchy": bh_country_only,
+#             "role": "HEALTH_FACILITY_WORKER",
+#             "taskDates": random_date_str(),
+#             "campaignId": c.campaign_id,
+#             "projectType": c.project_type,
+#             "userName": user_name,
+#             "boundaryHierarchyCode": bhc_country_only,
+#             "additionalDetails": {"cycleIndex": "01"},
+#             "userAddress": None,
+#             "projectTypeId": c.project_type_id,
+#             "syncedDate": random_date_str(),
+#             "@timestamp": ts_iso,
+
+#             "hfReferral": {
+#                 "projectFacilityId": None,
+#                 "rowVersion": 1,
+#                 "additionalFields": additional_fields,
+#                 "symptomSurveyId": "abc1",
+#                 "clientReferenceId": client_ref_id,
+#                 "symptom": symptom,
+#                 "clientAuditDetails": {
+#                     "lastModifiedTime": client_time_ms,
+#                     "createdBy": user_id,
+#                     "lastModifiedBy": user_id,
+#                     "createdTime": client_time_ms
+#                 },
+#                 "isDeleted": False,
+#                 "referralCode": None,
+#                 "auditDetails": {
+#                     "lastModifiedTime": audit_time_ms,
+#                     "createdBy": user_id,
+#                     "lastModifiedBy": user_id,
+#                     "createdTime": audit_time_ms
+#                 },
+#                 "tenantId": c.tenant_id,
+#                 "id": es_id,                    # nested id mirrors ES _id (like your sample)
+#                 "projectId": project_id,
+#                 "nationalLevelId": None,
+#                 "beneficiaryId": ""
+#             },
+
+#             "projectName": common_data.get("projectName", "MR-DN Campaign"),
+#             "campaignNumber": c.campaign_number,
+#             "projectId": project_id
+#         }
+#     }
+
+#     return {
+#         "_index": HF_REFERRAL_INDEX,
+#         "_id": es_id,
+#         "_score": None,
+#         "_source": src,
+#         "sort": [client_time_ms]
+#     }
+
+def generate_hf_referral(common_data, user_id, collapse_to_country: bool = False):
+    """
+    Emit an hf-referral-index-v1 document.
+    - If collapse_to_country=True, mimics your original 'country-only' behavior.
+    - Otherwise, uses boundaryHierarchy / boundaryHierarchyCode from common_data (including localityCode if provided).
+    """
+    c = SETTINGS.CAMPAIGN
+
+    # Inputs coming from emit_hf_referrals_for_all_levels(...)
+    boundary = (common_data.get("boundaryHierarchy") or {}).copy()
+    codes    = (common_data.get("boundaryHierarchyCode") or {}).copy()
+
+    # Determine the boundary/code to store
+    if collapse_to_country:
+        # old behavior
+        bh = {"country": boundary.get("country") or SETTINGS.GEO.DEFAULT_COUNTRY}
+        bhc = {"country": codes.get("country") or "MICROPLAN_MO"}
+    else:
+        # keep the slice you passed in (country→…→village)
+        bh = boundary or {"country": SETTINGS.GEO.DEFAULT_COUNTRY}
+        # keep codes as-is; if none, fall back to a minimal country code
+        bhc = codes or {"country": "MICROPLAN_MO"}
+
+    # localityCode: prefer what the caller set; else compute from the slice
+    loc_code = common_data.get("localityCode")
+    if not loc_code:
+        loc_code = most_specific_locality_code(bhc, bh) or bhc.get("country") or "MICROPLAN_MO"
+
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    ts_iso = now.isoformat().replace("+00:00", "Z")
+
+    coordinator = random.choice(["User with all roles", "HF Supervisor", "HF Coordinator"])
+    referral_name = random.choice(["Kanishq", "Asha", "Samuel", "Mary"])
+    gender = random.choice(["MALE", "FEMALE"])
+    age_years = random.randint(1, 80)
+    symptom = random.choice(["fever", "vomiting", "rash", "weakness"])
+
+    es_id = make_id()
+    client_ref_id = make_id()
+
+    client_time_ms = now_ms
+    audit_time_ms  = now_ms + random.randint(150, 2500)
+
+    additional_fields = build_hf_referral_additional_fields(
+        coordinator_name=coordinator,
+        date_of_eval_ms=now_ms,
+        name_of_referral=referral_name,
+        age_years=age_years,
+        gender=gender,
+        cycle="1"
+    )
+
+    user_name = common_data.get("userName") or "USR-006057"
+    project_id = common_data.get("projectId") or make_id()
+    project_name = common_data.get("projectName") or "MR-DN Campaign"
+
+    src = {
+        "ingestionTime": iso_z(datetime.now(timezone.utc)),
+        "Data": {
+            # ✅ keep the passed-in slice instead of collapsing to country only
+            "boundaryHierarchy": bh,
+            "role": "HEALTH_FACILITY_WORKER",
+            "taskDates": random_date_str(),
+            "campaignId": c.campaign_id,
+            "projectType": c.project_type,
+            "userName": user_name,
+            # ✅ keep the passed-in code slice
+            "boundaryHierarchyCode": bhc,
+            "localityCode": loc_code,  # ✅ now present
+            "additionalDetails": {"cycleIndex": "01"},
+            "userAddress": None,
+            "projectTypeId": c.project_type_id,
+            "syncedDate": random_date_str(),
+            "@timestamp": ts_iso,
+
+            "hfReferral": {
+                "projectFacilityId": None,
+                "rowVersion": 1,
+                "additionalFields": additional_fields,
+                "symptomSurveyId": "abc1",
+                "clientReferenceId": client_ref_id,
+                "symptom": symptom,
+                "clientAuditDetails": {
+                    "lastModifiedTime": client_time_ms,
+                    "createdBy": user_id,
+                    "lastModifiedBy": user_id,
+                    "createdTime": client_time_ms
+                },
+                "isDeleted": False,
+                "referralCode": None,
+                "auditDetails": {
+                    "lastModifiedTime": audit_time_ms,
+                    "createdBy": user_id,
+                    "lastModifiedBy": user_id,
+                    "createdTime": audit_time_ms
+                },
+                "tenantId": c.tenant_id,
+                "id": es_id,
+                "projectId": project_id,
+                "nationalLevelId": None,
+                "beneficiaryId": ""
+            },
+
+            "projectName": project_name,
+            "campaignNumber": c.campaign_number,
+            "projectId": project_id
+        }
+    }
+
+    return {
+        "_index": HF_REFERRAL_INDEX,
+        "_id": es_id,
+        "_score": None,
+        "_source": src,
+        "sort": [client_time_ms]
+    }
+
+
+# ------- FIXED: generate_stock_reconciliation (3.8-safe types) -------
+def generate_stock_reconciliation(common_data: dict,
+                                  *,
+                                  user_id: str,
+                                  # override knobs (optional)
+                                  product_variant_id: Optional[str] = None,
+                                  product_name: Optional[str] = None,
+                                  facility_id: Optional[str] = None,
+                                  facility_name: Optional[str] = None,
+                                  project_id: Optional[str] = None,
+                                  project_name: Optional[str] = None,
+                                  project_type: Optional[str] = None,
+                                  project_type_id: Optional[str] = None,
+                                  tenant_id: Optional[str] = None,
+                                  campaign_id: Optional[str] = None,
+                                  campaign_number: Optional[str] = None,
+                                  user_name: Optional[str] = None,
+                                  name_of_user: Optional[str] = None,
+                                  locality_code: Optional[str] = None,
+                                  boundary_hierarchy: Optional[Dict[str, Any]] = None,
+                                  boundary_hierarchy_code: Optional[Dict[str, Any]] = None,
+                                  # stock numbers (optional; if None they’re randomized)
+                                  received: Optional[float] = None,
+                                  issued: Optional[float] = None,
+                                  returned: Optional[float] = None,
+                                  lost: Optional[float] = None,
+                                  damaged: Optional[float] = None,
+                                  physical_count: Optional[int] = None,
+                                  comments: Optional[str] = None
+                                  ) -> dict:
+    """
+    Builds one ES doc for stock-reconciliation-index-v1, faithful to your samples.
+    - Sort key = syncedTime (ms)
+    - @timestamp and syncedTimeStamp = ISO of syncedTime
+    - id = SR-YYYY-MM-DD-###### and mirrored inside nested.stockReconciliation.id
+    """
+    now = datetime.now(timezone.utc)
+
+    # time choreography (close to your samples)
+    date_of_recon = now - timedelta(minutes=random.randint(5, 60))
+    client_time   = now - timedelta(minutes=random.randint(1, 3))
+    synced_time   = now
+
+    date_of_recon_ms = ms(date_of_recon)
+    client_time_ms   = ms(client_time)
+    synced_time_ms   = ms(synced_time)
+
+    es_id = next_sr_id(synced_time)
+
+    # pull or default context fields
+    project_id       = project_id       or common_data.get("projectId")       or make_id()
+    project_name     = project_name     or common_data.get("projectName")     or "MR-DN-August-Dec"
+    project_type     = project_type     or common_data.get("projectType")     or "MR-DN"
+    project_type_id  = project_type_id  or common_data.get("projectTypeId")   or "ea1bb2e7-06d8-4fe4-ba1e-f4a6363a21be"
+    tenant_id        = tenant_id        or common_data.get("tenantId")        or "mz"
+    campaign_id      = campaign_id      or common_data.get("campaignId")      or make_id()
+    campaign_number  = campaign_number  or common_data.get("campaignNumber")  or "CMP-2025-08-25-001466"
+    user_name        = user_name        or common_data.get("userName")        or "USR-006196"
+    name_of_user     = name_of_user     or common_data.get("nameOfUser")      or random.choice(["Lata", "James Brown"])
+    facility_id      = facility_id      or common_data.get("facilityId")      or random.choice(["F-2025-07-31-008941","F-2025-07-31-008938","F-2025-04-08-008932"])
+    facility_name    = facility_name    or common_data.get("facilityName")    or random.choice(["Bednet L5","Bednet L2","Facility Storage","Facility Storage Grand Gedeh","Destination Warehouse 5","LLIN Facilities"])
+    product_variant_id = product_variant_id or common_data.get("productVariantId") or random.choice(["PVAR-2025-01-09-000099","PVAR-2025-01-08-000094","PVAR-2025-07-30-000134"])
+    product_name     = product_name     or common_data.get("productName")     or random.choice(["SP - 250mg","Bednet - Grade 1"])
+    locality_code    = locality_code    or common_data.get("localityCode")    or "MICROPLAN_MO"
+    boundary_hierarchy = boundary_hierarchy or common_data.get("boundaryHierarchy") or {"country": "Nigeria"}
+    boundary_hierarchy_code = boundary_hierarchy_code or common_data.get("boundaryHierarchyCode") or {"country": "MICROPLAN_MO"}
+
+    # --- stock math (align with samples) ---
+    if received is None and issued is None and returned is None and lost is None and damaged is None:
+        pattern = random.choice(["all100","some_loss","big","zero","negative"])
+        if pattern == "all100":
+            received, issued, returned, lost, damaged = 100.0, 0.0, 0.0, 0.0, 0.0
+        elif pattern == "some_loss":
+            received, issued, returned, lost, damaged = 600.0, 25.0, 4.0, 24.0, 5.0
+        elif pattern == "big":
+            received, issued, returned, lost, damaged = 10000.0, 5000.0, 1000.0, 0.0, 0.0
+        elif pattern == "zero":
+            received, issued, returned, lost, damaged = 0.0, 0.0, 0.0, 0.0, 0.0
+        else:  # negative inHand case like sample
+            received, issued, returned, lost, damaged = 0.0, 0.0, 0.0, 500.0, 500.0
+
+    # calculated/inHand
+    in_hand_calc = received - issued + returned - lost - damaged
+
+    # physicalCount default
+    if physical_count is None:
+        if random.random() < 0.3:
+            physical_count = max(0, int(in_hand_calc) - random.choice([5, 2, 1, 0]))
+        else:
+            physical_count = int(in_hand_calc)
+
+    add_fields = build_stock_recon_additional_fields(received, issued, returned, lost, damaged, in_hand_calc)
+    reference_id = project_id
+    comments = comments if comments is not None else random.choice([None, "Reconciled the stock", ""])
+
+    nested = {
+        "calculatedCount": int(in_hand_calc) if float(in_hand_calc).is_integer() else in_hand_calc,
+        "dateOfReconciliation": date_of_recon_ms,
+        "facilityId": facility_id,
+        "productVariantId": product_variant_id,
+        "additionalFields": add_fields,
+        "rowVersion": 1,
+        "clientReferenceId": make_id(),
+        "referenceId": reference_id,
+        "clientAuditDetails": {
+            "lastModifiedTime": client_time_ms,
+            "createdBy": user_id,
+            "lastModifiedBy": user_id,
+            "createdTime": client_time_ms
+        },
+        "commentsOnReconciliation": comments if comments else None,
+        "isDeleted": False,
+        "auditDetails": {
+            "lastModifiedTime": synced_time_ms,
+            "createdBy": user_id,
+            "lastModifiedBy": user_id,
+            "createdTime": synced_time_ms
+        },
+        "tenantId": tenant_id,
+        "id": es_id,
+        "referenceIdType": "PROJECT",
+        "physicalCount": physical_count
+    }
+
+    src = {
+        "ingestionTime": iso_z(datetime.now(timezone.utc)),
+        "Data": {
+            "boundaryHierarchy": boundary_hierarchy,
+            "taskDates": random_date_str(synced_time),  # fixed helper handles datetime
+            "role": "WAREHOUSE_MANAGER",
+            "syncedTime": synced_time_ms,
+            "campaignId": campaign_id,
+
+            "stockReconciliation": nested,
+
+            "projectType": project_type,
+            "localityCode": locality_code,
+            "nameOfUser": name_of_user,
+            "boundaryHierarchyCode": boundary_hierarchy_code,
+            "additionalDetails": {
+                "lost":     int(lost) if float(lost).is_integer() else lost,
+                "damaged":  int(damaged) if float(damaged).is_integer() else damaged,
+                "inHand":   int(in_hand_calc) if float(in_hand_calc).is_integer() else in_hand_calc,
+                "received": int(received) if float(received).is_integer() else received,
+                "issued":   int(issued) if float(issued).is_integer() else issued,
+                "returned": int(returned) if float(returned).is_integer() else returned
+            },
+            "userName": user_name,
+            "productName": product_name,
+            "userAddress": common_data.get("userAddress"),
+            "projectTypeId": project_type_id,
+            "syncedDate": random_date_str(synced_time),
+            "@timestamp": iso_z(synced_time),
+            "facilityName": facility_name,
+            "facilityTarget": common_data.get("facilityTarget"),
+            "facilityLevel": common_data.get("facilityLevel"),
+            "syncedTimeStamp": iso_z(synced_time),
+            "projectName": project_name,
+            "campaignNumber": campaign_number,
+            "projectId": project_id
+        }
+    }
+
+    return {
+        "_index": STOCK_RECON_INDEX,
+        "_id": es_id,
+        "_score": None,
+        "_source": src,
+        "sort": [synced_time_ms]
+    }
+
+# ------- FIXED: generate_plan_facility (3.8-safe types) -------
+def generate_plan_facility(common_data: dict, user_id: str,
+                           facility_name: Optional[str] = None,
+                           fixed_post_yes_no: Optional[str] = None,
+                           facility_type: Optional[str] = None) -> dict:
+    """
+    Emit a plan-facility-index-v1 document following your samples.
+    Uses the boundary *slice* provided in common_data (so call via emit_*_for_all_levels).
+    """
+    h: Dict[str, Any] = (common_data.get("boundaryHierarchy") or {}).copy()
+    codes: Dict[str, Any] = (common_data.get("boundaryHierarchyCode") or {}).copy()
+
+    residing_code = most_specific_locality_code(codes, h) or codes.get("country") or "MICROPLAN_MO"
+    boundary_path = build_boundary_ancestral_path(codes, h)
+
+    code_pool = [v for v in codes.values() if v]
+    if boundary_data:
+        for bd in random.sample(boundary_data, k=min(5, len(boundary_data))):
+            code_pool.extend([cv for cv in bd.get("codes", {}).values() if cv])
+
+    service_boundaries_value = maybe_service_boundaries(code_pool)  # "" or CSV
+
+    facility_id = random_facility_id()
+    facility_name = facility_name or random.choice([
+        "New Facility", "AS Pemba", "Armazem distrital de Pemba ",
+        "Armazem distrital de Mecufi", "Dundun Hp New",
+        "Bednet L1", "Bednet L2", "Bednet L3", "Bednet L4", "Bednet L5", "Bednet L6", "Bednet L7",
+        "NPHC IYERE"
+    ])
+    fixed_post_yes_no = fixed_post_yes_no or random.choice(["Yes", "No"])
+    facility_type = facility_type or random.choice(["Warehouse", "Health Facility", "Storing Resource"])
+
+    lat = None if random.random() < 0.7 else 10
+    lon = None if random.random() < 0.7 else 10
+    capacity = random.choice([0, 100, 200, 400, 500, 2500, 20000])
+    serving_pop = random.choice([0, 220, 810, 2000])
+
+    plan_cfg_id = make_id()
+    plan_cfg_name = f"{common_data.get('projectName','Malaria-SMC Campaign')}-" \
+                    f"{random.choice(['House-To-House','Fixed Post & House-to-House'])}-" \
+                    f"{datetime.now().strftime('%d %b %y')}"
+
+    now = datetime.now(timezone.utc)
+    now_ms = ms(now)
+    es_id = make_id()
+
+    init_sb = None if service_boundaries_value == "" else []
+
+    src = {
+        "ingestionTime": iso_z(datetime.now(timezone.utc)),
+        "Data": {
+            "residingBoundary": residing_code,
+            "facilityId":      facility_id,
+            "serviceBoundaries": service_boundaries_value,
+            "planConfigurationName": plan_cfg_name,
+            "jurisdictionMapping": build_jurisdiction_mapping_from_codes(codes) or {},
+            "boundaryAncestralPath": boundary_path,
+            "active": True,
+            "additionalDetails": {
+                "assignedVillages": [],
+                "hierarchyType": "MICROPLAN",
+                "facilityType": facility_type,
+                "latitude": lat,
+                "fixedPost": fixed_post_yes_no,
+                "facilityName": facility_name,
+                "facilityStatus": random.choice(["Permanent", "Temporary"]),
+                "capacity": capacity,
+                "servingPopulation": serving_pop,
+                "longitude": lon
+            },
+            "initiallySetServiceBoundaries": init_sb,
+            "@timestamp": iso_z(now),
+            "planConfigurationId": plan_cfg_id,
+            "auditDetails": {
+                "lastModifiedTime": now_ms,
+                "createdBy": user_id,
+                "lastModifiedBy": user_id,
+                "createdTime": now_ms
+            },
+            "tenantId": "mz",
+            "id": es_id,
+            "facilityName": facility_name
+        }
+    }
+
+    return {
+        "_index": PLAN_FACILITY_INDEX,
+        "_id": es_id,
+        "_score": None,
+        "_source": src,
+        "sort": [now_ms]
+    }
+
+
+
 # ========================
 # Main
 # ========================
@@ -1593,6 +3012,14 @@ if __name__ == "__main__":
     attendance_logs, project_staff, stocks = [], [], []
     household_coverage_daily_iccd, household_coverage_summary_iccd, ineligible_summary = [], [], []
     user_sync_docs = []
+    referrals = [] 
+    side_effect_docs = []
+    census_docs = []
+    plan_docs = []
+    hf_referrals = []
+    stock_recons: list[dict] = []
+    plan_facilities = []  # NEW
+
 
     user_id = str(uuid.uuid4())
 
@@ -1617,6 +3044,26 @@ if __name__ == "__main__":
             member_doc = generate_member(common_data, household_doc["_id"], individual_client_ref_id, individual_id, user_id)
             if member_doc is not None:
                 members.append(member_doc)
+
+                # --- NEW: side-effect tied to the task (if present) ---
+            task_id = None
+            task_client_ref = None
+            if task_doc is not None:
+                try:
+                    task_id = task_doc["_source"]["Data"]["taskId"]
+                    task_client_ref = task_doc["_source"]["Data"]["taskClientReferenceId"]
+                except KeyError:
+                    pass
+
+            se_doc = generate_side_effect(
+                common_data,
+                user_id=user_id,
+                individual_id=individual_id,
+                task_id=task_id,
+                task_client_reference_id=task_client_ref
+            )
+            if se_doc is not None:
+                side_effect_docs.append(se_doc)
 
             service_doc = generate_transformer_pgr_services(common_data, user_id)
             if service_doc is not None:
@@ -1666,6 +3113,68 @@ if __name__ == "__main__":
             if user_sync_doc is not None:
                 user_sync_docs.append(user_sync_doc)
 
+            referral_doc = generate_referral(common_data, user_id, individual_id)
+            if referral_doc is not None:
+                referrals.append(referral_doc)
+            
+            # Toggle variations to mimic your dataset
+            with_hidden = random.random() < 0.4
+            with_acc    = random.random() < 0.5
+            with_sec    = random.random() < 0.3
+            force_map   = random.random() < 0.7  # most have jurisdictionMapping; some use boundaryAncestralPath
+
+            census_doc = generate_census(
+                common_data,
+                boundary_code=common_data.get("localityCode"),  # or pick codes["village"] for finer granularity
+                with_hidden_latlong=with_hidden,
+                with_accessibility=with_acc,
+                with_security=with_sec,
+                force_mapping=force_map
+            )
+            census_docs.append(census_doc)
+
+            emit_plans_for_locality(common_data)
+            # NEW: create HF referrals for ALL available boundary hierarchies (country→…→village)
+            hf_referrals.extend(
+                emit_hf_referrals_for_all_levels(common_data, user_id, min_per_level=1, max_per_level=2)
+            )
+
+            # --- NEW: stock reconciliation docs for this locality/facility/product ---
+            sr_common = {
+                # reuse boundary & codes from the loop so all child docs align
+                "boundaryHierarchy": common_data["boundaryHierarchy"],
+                "boundaryHierarchyCode": common_data["boundaryHierarchyCode"],
+                # campaign/project context (fallbacks match your samples if SETTINGS lacks them)
+                "projectId": common_data.get("projectId"),
+                "projectName": common_data.get("projectName"),
+                "projectType": common_data.get("projectType"),
+                "projectTypeId": common_data.get("projectTypeId"),
+                "tenantId": "mz",
+                "campaignId": getattr(SETTINGS.CAMPAIGN, "campaign_id", "f51ed8bc-2f40-425c-83f8-6dea5d31c169"),
+                "campaignNumber": getattr(SETTINGS.CAMPAIGN, "campaign_number", "CMP-2025-08-25-001466"),
+                # locality code (fallback to country-level code like in samples)
+                "localityCode": common_data["boundaryHierarchyCode"].get("district")
+                                or common_data["boundaryHierarchyCode"].get("country")
+                                or "MICROPLAN_MO",
+                # facility/product (you can wire these to real lists if you have them)
+                "facilityId": random.choice(["F-2025-07-31-008941","F-2025-07-31-008938","F-2025-04-08-008932"]),
+                "facilityName": random.choice(["Bednet L5","Bednet L2","Facility Storage","Destination Warehouse 5","LLIN Facilities"]),
+                "productVariantId": random.choice(["PVAR-2025-07-30-000134","PVAR-2025-01-09-000099","PVAR-2025-01-08-000094"]),
+                "productName": random.choice(["SP - 250mg","Bednet - Grade 1"]),
+                "userName": common_data["userName"],
+                "nameOfUser": common_data["nameOfUser"],
+            }
+
+            for _ in range(random.randint(1, 3)):
+                sr_doc = generate_stock_reconciliation(sr_common, user_id=user_id)
+                stock_recons.append(sr_doc)
+            
+            # NEW: Plan-Facility docs for all available boundary hierarchies
+            plan_facilities.extend(
+                emit_plan_facilities_for_all_levels(common_data, user_id, min_per_level=1, max_per_level=1)
+            )
+
+
     logger.info(f"Generated {len(households)} households, {len(members)} members, {len(projectTasks)} project tasks.")
 
     # Write files
@@ -1684,8 +3193,15 @@ if __name__ == "__main__":
     write_bulk_file(household_coverage_summary_iccd, HOUSEHOLD_COVERAGE_SUMMARY_ICCD_FILE)
     write_bulk_file(ineligible_summary, INELIGIBLE_SUMMARY_FILE)
     write_bulk_file(user_sync_docs, USER_SYNC_FILE)
+    write_bulk_file(referrals, REFERRAL_FILE)
+    write_bulk_file(side_effect_docs, SIDE_EFFECT_FILE)
+    write_bulk_file(census_docs, CENSUS_FILE)
+    write_bulk_file(plan_docs, PLAN_FILE)
+    write_bulk_file(hf_referrals, HF_REFERRAL_FILE)
+    write_bulk_file(stock_recons, STOCK_RECON_FILE)
+    write_bulk_file(plan_facilities, PLAN_FACILITY_FILE)  # NEW
 
-    Upload to Elasticsearch
+    # Upload to Elasticsearch
     if get_resp(SETTINGS.ES.host, es=True):
         logger.info("Elasticsearch is up. Starting upload.")
         upload_bulk_to_es(HOUSEHOLD_FILE, SETTINGS.ES.host, HOUSEHOLD_INDEX)
@@ -1703,7 +3219,15 @@ if __name__ == "__main__":
         upload_bulk_to_es(HOUSEHOLD_COVERAGE_SUMMARY_ICCD_FILE, SETTINGS.ES.host, HOUSEHOLD_COVERAGE_SUMMARY_ICCD_INDEX)
         upload_bulk_to_es(INELIGIBLE_SUMMARY_FILE, SETTINGS.ES.host, INELIGIBLE_SUMMARY_INDEX)
         upload_bulk_to_es(USER_SYNC_FILE, SETTINGS.ES.host, USER_SYNC_INDEX)
+        upload_bulk_to_es(REFERRAL_FILE, SETTINGS.ES.host, REFERRAL_INDEX)
+        upload_bulk_to_es(SIDE_EFFECT_FILE, SETTINGS.ES.host, SIDE_EFFECT_INDEX)
+        upload_bulk_to_es(CENSUS_FILE, SETTINGS.ES.host, CENSUS_INDEX)
+        upload_bulk_to_es(PLAN_FILE, SETTINGS.ES.host, PLAN_INDEX)
+        upload_bulk_to_es(HF_REFERRAL_FILE, SETTINGS.ES.host, HF_REFERRAL_INDEX)
+        upload_bulk_to_es(STOCK_RECON_FILE, SETTINGS.ES.host, STOCK_RECON_INDEX)
+        upload_bulk_to_es(PLAN_FACILITY_FILE, SETTINGS.ES.host, PLAN_FACILITY_INDEX)  # NEW
 
+        
         logger.info("Data uploaded to Elasticsearch successfully.")
     else:
         logger.warning("Elasticsearch is not reachable. Skipping upload.")
