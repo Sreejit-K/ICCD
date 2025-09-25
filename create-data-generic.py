@@ -95,7 +95,7 @@ class Settings:
     max_retries: int = 10
     retry_delay: int = 5
     # Generation sizes
-    num_households: int = 10
+    num_households: int = 100
 
 
 SETTINGS = Settings()  # global single source of truth
@@ -1385,6 +1385,11 @@ def generate_population_coverage_summary(common_data, user_id):
     total_female = total_pop - total_male
     refused = random.randint(0, 10)
 
+    start_date = datetime(2025, 9, 20)
+    end_date = datetime(2025, 9, 25)
+    random_date_obj = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
+    date_str = random_date_obj.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
     document = {
         "_index": POPULATION_COVERAGE_INDEX,
         "_id": str(uuid.uuid4()),
@@ -1392,6 +1397,7 @@ def generate_population_coverage_summary(common_data, user_id):
         "_source": {
             "total_administered_resources": total_admin,
             "refused": {"count": refused},
+            "date": date_str,
             "total_population_refused": refused,
             "campaignId": c.campaign_id,
             "total_female_population_administered": total_female,
