@@ -1636,76 +1636,70 @@ def generate_attendance_log(common_data, user_id):
     c = SETTINGS.CAMPAIGN
     now = datetime.now(timezone.utc)
     timestamp = int(now.timestamp() * 1000)
-
     boundary = common_data["boundaryHierarchy"]
     codes = common_data["boundaryHierarchyCode"]
-
     attendance_id = str(uuid.uuid4())
     register_id = str(uuid.uuid4())
     individual_id = str(uuid.uuid4())
-
     lat, lon = pick_lat_lon_for_boundary(boundary)
-
     attendance_type = random.choice(["ENTRY", "EXIT"])
     status = random.choice(["ACTIVE", "INACTIVE"])
-    role = random.choice(["DISTRICT_SUPERVISOR", "TEAM_SUPERVISOR", "DISTRIBUTOR"])
-
+    role = random.choice(["REGISTRAR","DISTRICT_SUPERVISOR", "TEAM_SUPERVISOR", "DISTRIBUTOR"]) 
     attendee_given_names = ["Distributor One", "Distributor Two", "Distributor Three", "Team Leader Alpha", "Supervisor Beta"]
     given_name = random.choice(attendee_given_names)
-
     user_names = ["heal-att-taker-1", "health-att-taker-4578", "att-supervisor-001"]
     attendance_user_names = ["heal-demo-1", "heal-demo-2", "heal-demo-3", "health-demo-4790", "health-demo-4791"]
-
     service_codes = ["heal-demo-test-12", "health-demo-test-001", "att-service-001"]
     register_numbers = [
         f"WR/2025-26/{datetime.now().strftime('%m/%d')}/{random.randint(600000, 699999)}",
         f"AR/2025-{random.randint(10, 30)}/{datetime.now().strftime('%m/%d')}/{random.randint(600000, 699999)}"
     ]
-
     attendance_time_offset = random.randint(1, 48) * 3600 * 1000
     attendance_time = timestamp + attendance_time_offset
-
     return {
         "_index": ATTENDANCE_LOG_INDEX,
         "_id": attendance_id,
         "_source": {
-            "boundaryHierarchy": boundary,
-            "role": role,
-            "attendanceTime": datetime.fromtimestamp(attendance_time/1000, timezone.utc).isoformat().replace('+00:00', 'Z'),
-            "campaignId": c.campaign_id,
-            "givenName": None,
-            "projectType": c.project_type,
-            "userName": random.choice(user_names),
-            "boundaryHierarchyCode": codes,
-            "attendeeName": {"otherNames": None, "givenName": given_name, "familyName": None},
-            "projectTypeId": c.project_type_id,
-            "@timestamp": now.isoformat().replace('+00:00', 'Z'),
-            "attendanceLog": {
-                "registerId": register_id,
-                "auditDetails": common_data["auditDetails"],
-                "tenantId": SETTINGS.CAMPAIGN.tenant_id,
-                "id": attendance_id,
-                "individualId": individual_id,
-                "time": attendance_time,
-                "userName": random.choice(attendance_user_names),
-                "type": attendance_type,
-                "additionalDetails": {
-                    "boundaryCode": most_specific_locality_code(codes, boundary),
-                    "latitude": lat,
-                    "comment": random.choice(["attendance taken", "marked", "registered", "logged entry", "confirmed attendance"]),
-                    "longitude": lon
+            "Data": {  # Added: Wrap all fields under Data object to match ES query field paths
+                "boundaryHierarchy": boundary,
+                "role": role,
+                "attendanceTime": datetime.fromtimestamp(attendance_time/1000, timezone.utc).isoformat().replace('+00:00', 'Z'),
+                "campaignId": c.campaign_id,
+                "givenName": None,
+                "projectType": c.project_type,
+                "userName": random.choice(user_names),
+                "boundaryHierarchyCode": codes,
+                "attendeeName": {"otherNames": None, "givenName": given_name, "familyName": None},
+                "projectTypeId": c.project_type_id,
+                "@timestamp": now.isoformat().replace('+00:00', 'Z'),
+                "id": attendance_id,  # Added: Direct id field at Data level for ES aggregation value_count
+                "attendanceLog": {
+                    "registerId": register_id,
+                    "auditDetails": common_data["auditDetails"],
+                    "tenantId": SETTINGS.CAMPAIGN.tenant_id,
+                    "id": attendance_id,
+                    "individualId": individual_id,
+                    "time": attendance_time,
+                    "userName": random.choice(attendance_user_names),
+                    "type": attendance_type,
+                    "additionalDetails": {
+                        "boundaryCode": most_specific_locality_code(codes, boundary),
+                        "latitude": lat,
+                        "comment": random.choice(["attendance taken", "marked", "registered", "logged entry", "confirmed attendance"]),
+                        "longitude": lon
+                    },
+                    "status": status,
+                    "documentIds": []
                 },
-                "status": status,
-                "documentIds": []
-            },
-            "ingestionTime": now.isoformat() + "Z",
-            "familyName": None,
-            "registerServiceCode": random.choice(service_codes),
-            "registerNumber": random.choice(register_numbers),
-            "projectName": common_data["projectName"],
-            "campaignNumber": c.campaign_number,
-            "projectId": common_data["projectId"],
-            "registerName": "Demo Health New Training Attendnace"
+                "ingestionTime": now.isoformat() + "Z",
+                "familyName": None,
+                "registerServiceCode": random.choice(service_codes),
+                "registerNumber": random.choice(register_numbers),
+                "projectName": common_data["projectName"],
+                "campaignNumber": c.campaign_number,
+                "projectId": common_data["projectId"],
+                "registerName": "Demo Health New Training Attendnace"
+            }
         }
     }
 
