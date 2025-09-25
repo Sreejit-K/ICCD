@@ -12,6 +12,7 @@ import uuid
 import random
 import base64
 import json
+import math
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 import time
@@ -46,44 +47,23 @@ class CampaignConfig:
 
 @dataclass
 class GeoConfig:
-    """
-    Central place to control latitude/longitude generation.
-      Priority order:
-        1) FORCE_COORDS if provided (global fixed lat/lon used everywhere)
-        2) USER_LOCATION_COORDS (exact boundary tuple matches)
-        3) COUNTRY_LATLON_RANGES fallback
-    """
-    # Set to a tuple (lat, lon) to force the same coordinates everywhere.
     FORCE_COORDS: Optional[Tuple[float, float]] = None
+    USER_LOCATION_COORDS: List[Dict[str, Any]] = field(default_factory=list)
 
-    # Exact coordinates keyed by partial or full boundary tuples
-    USER_LOCATION_COORDS: List[Dict[str, Any]] = field(default_factory=lambda: [
-        {
-            "match": {
-                "country": "Mozambique",
-                "province": "Maryland",
-                "district": "Pleebo",
-                "administrativeProvince": "Pleebo Health Center",
-                "locality": "Hospital Camp/Camp 3",
-                "village": "Hospital Camp"
-            },
-            "lat": -7.0345,
-            "lon": 37.1234
-        },
-        # Add more entries as needed…
-    ])
-
-    # Country bounds (lat_rng, lon_rng)
-    COUNTRY_LATLON_RANGES: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = field(default_factory=lambda: {
-        # Mozambique approx bounds (lat: -26.9..-10.5, lon: 30.2..41.5)
-        "Mozambique": ((-26.9, -10.5), (30.2, 41.5)),
-        # India approx bounds
-        "India": ((8.0, 37.0), (68.0, 97.0))
+    # NEW: safe circle just for Mozambique
+    COUNTRY_CIRCLES: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        # Center of Mozambique (inland), ~250 km radius
+        "Mozambique": {"lat": -17.75, "lon": 35.50, "radius_km": 250},
+        # Nigeria (new)
+        "Nigeria": {"lat": 9.0, "lon": 8.5, "radius_km": 400}
     })
 
-    # Default country to use if none present
-    DEFAULT_COUNTRY: str = "India"
+    COUNTRY_LATLON_RANGES: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = field(default_factory=lambda: {
+        "Mozambique": ((-26.9, -10.5), (30.2, 41.5)),  # keep as fallback
+        "Nigeria": ((4.2, 13.9), (2.7, 14.7))
+    })
 
+    DEFAULT_COUNTRY: str = "Nigeria"
 
 @dataclass
 class ESConfig:
@@ -310,6 +290,20 @@ names = ["Lata", "Ram", "Sita", "John", "Priya", "Nina", "Amit", "Ravi", "Suresh
 # ========================
 # Helpers
 # ========================
+
+def _random_point_in_circle(center_lat: float, center_lon: float, radius_km: float) -> Tuple[float, float]:
+    """Uniformly sample a point within a circle in km around center."""
+    KM_PER_DEG_LAT = 110.574
+    u = random.random()
+    r_km = radius_km * math.sqrt(u)
+    theta = random.random() * 2 * math.pi
+
+    dlat = (r_km * math.sin(theta)) / KM_PER_DEG_LAT
+    dlon = (r_km * math.cos(theta)) / (111.320 * math.cos(math.radians(center_lat)))
+
+    return (round(center_lat + dlat, 6), round(center_lon + dlon, 6))
+
+
 def random_epoch(start_year=2020, end_year=2026):
     start = int(time.mktime(datetime(start_year, 1, 1).timetuple()))
     end = int(time.mktime(datetime(end_year, 12, 31).timetuple()))
@@ -421,19 +415,24 @@ def _random_in_country(country: str, geo_cfg: GeoConfig):
     return round(random.uniform(*lat_rng), 6), round(random.uniform(*lon_rng), 6)
 
 def pick_lat_lon_for_boundary(hierarchy: Dict[str, Any], geo_cfg: GeoConfig = SETTINGS.GEO) -> Tuple[float, float]:
-    """Single place that controls how lat/lon are chosen."""
-    # 0) Forced—use the same lat/lon everywhere
-    if geo_cfg.FORCE_COORDS is not None:
+    """Always pick a point inside Mozambique's safe circle (or fallback)."""
+    if geo_cfg.FORCE_COORDS:
         return geo_cfg.FORCE_COORDS
 
-    # 1) Exact user mapping
-    mapped = _coords_from_user_locations(hierarchy, geo_cfg.USER_LOCATION_COORDS)
-    if mapped:
-        return mapped
-
-    # 2) Country based fallback
     country = hierarchy.get("country", geo_cfg.DEFAULT_COUNTRY)
-    return _random_in_country(country, geo_cfg)
+
+    # Use safe circle if defined
+    circle = geo_cfg.COUNTRY_CIRCLES.get(country)
+    if circle:
+        return _random_point_in_circle(circle["lat"], circle["lon"], circle["radius_km"])
+
+    # Fallback to bbox mid-point (shouldn’t happen if country is Mozambique)
+    lat_rng, lon_rng = geo_cfg.COUNTRY_LATLON_RANGES[country]
+    return (
+        round((lat_rng[0] + lat_rng[1]) / 2, 6),
+        round((lon_rng[0] + lon_rng[1]) / 2, 6)
+    )
+
 
 def clean_source(source):
     return {k: v for k, v in source.items() if not callable(v)}
@@ -854,13 +853,13 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
         {
             "houseStructureTypes": random.choice(["REEDS", "CLAY", "METAL", "GLASS", "CEMENT"]),
             "children": random.randint(0, 3),
-            "latitude": "11.094015445728362",
+            "latitude": str(latitude),
             "isVulnerable": True,
             "test_b9aa6f50056e": "test_dcfafb1be02f",
             "cycleIndex": "01",
             "noOfRooms": random.randint(1, 15),
             "pregnantWomen": random.randint(0, 1),
-            "longitude": "4.41527528930878"
+            "longitude": str(longitude)
         },
         {
             "memberCount": str(random.randint(1, 3)),
@@ -1356,7 +1355,7 @@ def generate_project(common_data, user_id):
                 "targetPerDay": 25,
                 "overallTarget": 250,
                 "targetType": random.choice(["HOUSEHOLD", "INDIVIDUAL", "PRODUCT"]),
-                "projectBeneficiaryType": "HOUSEHOLD",
+                "projectBeneficiaryType": random.choice(["HOUSEHOLD", "INDIVIDUAL"]),
                 "productVariant": "PVAR-2025-01-09-000103,PVAR-2025-01-09-000104",
                 "additionalDetails": {"doseIndex": ["01"], "cycleIndex": ["01"]},
                 "localityCode": most_specific_locality_code(codes, boundary),
@@ -1903,17 +1902,19 @@ def generate_user_sync(common_data, user_id):
     if proj_type_choice == "Bednet":
         proj_type_id = "Bednet"
 
+    latitude, longitude = pick_lat_lon_for_boundary(boundary)
+
     addl_details_options = [
         {
             "houseStructureTypes": random.choice(["REEDS", "CLAY", "METAL", "GLASS", "CEMENT"]),
             "children": random.randint(0, 3),
-            "latitude": "11.094015445728362",
+            "latitude": str(latitude),
             "isVulnerable": True,
             "test_b9aa6f50056e": "test_dcfafb1be02f",
             "cycleIndex": "01",
             "noOfRooms": random.randint(1, 15),
             "pregnantWomen": random.randint(0, 1),
-            "longitude": "4.41527528930878"
+            "longitude": str(longitude)
         },
         {
             "memberCount": str(random.randint(1, 3)),
@@ -2265,7 +2266,7 @@ def generate_census(common_data, *, boundary_code=None, with_hidden_latlong=Fals
     c = SETTINGS.CAMPAIGN
 
     # Decide population numbers similar to your examples
-    total_population = random.choice([100, 200, 300, 500, 1000])
+    total_population = random.choice([100, 200, 300, 500])
     # Split into targets (keep them <= total for realism)
     tgt_3to11   = random.choice([30, 40, 50, 60]) if total_population >= 60 else min(40, max(30, total_population // 2))
     tgt_12to59  = random.choice([30, 40, 50])     if total_population >= 50 else min(50, total_population // 2)
@@ -2290,8 +2291,9 @@ def generate_census(common_data, *, boundary_code=None, with_hidden_latlong=Fals
 
     # Some docs include latitude/longitude at this level as well
     if with_accessibility or with_hidden_latlong or random.random() < 0.4:
-        additional_details["latitude"] = 10
-        additional_details["longitude"] = 10
+        lat, lon = pick_lat_lon_for_boundary(common_data.get("boundaryHierarchy", {}))
+        additional_details["latitude"] = lat
+        additional_details["longitude"] = lon
 
     if with_accessibility:
         additional_details["accessibilityDetails"] = {
@@ -2494,125 +2496,6 @@ def build_hf_referral_additional_fields(*, coordinator_name: str, date_of_eval_m
         "version": 1
     }
 
-# def generate_hf_referral(common_data, user_id):
-#     """
-#     Emit an hf-referral-index-v1 document matching your sample shape.
-#     - Reads campaign/tenant from SETTINGS
-#     - Mirrors nested `hfReferral` block (additionalFields, times, ids)
-#     - Uses minimal boundary (country) and a MICROPLAN-like boundaryHierarchyCode
-#     """
-#     c = SETTINGS.CAMPAIGN
-#     boundary = common_data.get("boundaryHierarchy", {}) or {}
-#     codes    = common_data.get("boundaryHierarchyCode", {}) or {}
-
-#     now = datetime.now(timezone.utc)
-#     now_ms = int(now.timestamp() * 1000)
-#     ts_iso = now.isoformat().replace("+00:00", "Z")
-
-#     # Keep boundary minimal like the sample (country only)
-#     bh_country_only = {}
-#     if "country" in boundary:
-#         bh_country_only["country"] = boundary["country"]
-#     else:
-#         # fallback so the doc always has a country-level boundary
-#         bh_country_only["country"] = SETTINGS.GEO.DEFAULT_COUNTRY
-
-#     # Sample shows boundaryHierarchyCode: {"country": "MICROPLAN_MO"}
-#     # We’ll prefer your code if present, else fall back to literal "MICROPLAN_MO"
-#     bhc_country_only = {
-#         "country": codes.get("country") or "MICROPLAN_MO"
-#     }
-
-#     # User / coordinator / referral person details (pick from your name lists)
-#     coordinator = random.choice(["User with all roles", "HF Supervisor", "HF Coordinator"])
-#     referral_name = random.choice(["Kanishq", "Asha", "Samuel", "Mary"])
-#     gender = random.choice(["MALE", "FEMALE"])
-#     age_years = random.randint(1, 80)     # text sample shows "25"
-#     symptom = random.choice(["fever", "vomiting", "rash", "weakness"])  # sample uses "fever"
-
-#     # IDs
-#     es_id = make_id()
-#     client_ref_id = make_id()
-
-#     # Times (mirror your sample: clientAuditDetails earlier, auditDetails slightly later)
-#     client_time_ms = now_ms
-#     audit_time_ms  = now_ms + random.randint(150, 2500)
-
-#     # dateOfEvaluation stored as string ms in sample
-#     date_of_evaluation_ms = now_ms  # same tick; stringify later via builder
-
-#     additional_fields = build_hf_referral_additional_fields(
-#         coordinator_name=coordinator,
-#         date_of_eval_ms=date_of_evaluation_ms,
-#         name_of_referral=referral_name,
-#         age_years=age_years,
-#         gender=gender,
-#         cycle="1"
-#     )
-
-#     # userName in your sample looks like a fixed value; we’ll reuse your common_data if present
-#     user_name = common_data.get("userName") or "USR-006057"
-
-#     # Project linkages: sample repeats projectId both at root and inside nested hfReferral
-#     project_id = common_data.get("projectId") or make_id()
-
-#     src = {
-#         "ingestionTime": iso_z(datetime.now(timezone.utc)),
-#         "Data": {
-#             "boundaryHierarchy": bh_country_only,
-#             "role": "HEALTH_FACILITY_WORKER",
-#             "taskDates": random_date_str(),
-#             "campaignId": c.campaign_id,
-#             "projectType": c.project_type,
-#             "userName": user_name,
-#             "boundaryHierarchyCode": bhc_country_only,
-#             "additionalDetails": {"cycleIndex": "01"},
-#             "userAddress": None,
-#             "projectTypeId": c.project_type_id,
-#             "syncedDate": random_date_str(),
-#             "@timestamp": ts_iso,
-
-#             "hfReferral": {
-#                 "projectFacilityId": None,
-#                 "rowVersion": 1,
-#                 "additionalFields": additional_fields,
-#                 "symptomSurveyId": "abc1",
-#                 "clientReferenceId": client_ref_id,
-#                 "symptom": symptom,
-#                 "clientAuditDetails": {
-#                     "lastModifiedTime": client_time_ms,
-#                     "createdBy": user_id,
-#                     "lastModifiedBy": user_id,
-#                     "createdTime": client_time_ms
-#                 },
-#                 "isDeleted": False,
-#                 "referralCode": None,
-#                 "auditDetails": {
-#                     "lastModifiedTime": audit_time_ms,
-#                     "createdBy": user_id,
-#                     "lastModifiedBy": user_id,
-#                     "createdTime": audit_time_ms
-#                 },
-#                 "tenantId": c.tenant_id,
-#                 "id": es_id,                    # nested id mirrors ES _id (like your sample)
-#                 "projectId": project_id,
-#                 "nationalLevelId": None,
-#                 "beneficiaryId": ""
-#             },
-
-#             "projectName": common_data.get("projectName", "MR-DN Campaign"),
-#             "campaignNumber": c.campaign_number,
-#             "projectId": project_id
-#         }
-#     }
-
-#     return {
-#         "_index": HF_REFERRAL_INDEX,
-#         "_id": es_id,
-#         "_score": None,
-#         "_source": src,
-#         "sort": [client_time_ms]
-#     }
 
 def generate_hf_referral(common_data, user_id, collapse_to_country: bool = False):
     """
