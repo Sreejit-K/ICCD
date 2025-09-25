@@ -933,7 +933,7 @@ def generate_project(common_data, user_id):
                 "referenceID": campaign_number,
                 "targetPerDay": 2500,
                 "overallTarget": 25000,
-                "targetType": random.choice(["HOUSEHOLD", "INDIVIDUAL"]),
+                "targetType": random.choice(["HOUSEHOLD", "INDIVIDUAL", "PRODUCT"]),
                 "projectBeneficiaryType": "HOUSEHOLD",
                 "productVariant": "PVAR-2025-01-09-000103,PVAR-2025-01-09-000104",
                 "additionalDetails": {"doseIndex": ["01"], "cycleIndex": ["01"]},
