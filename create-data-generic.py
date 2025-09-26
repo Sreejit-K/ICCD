@@ -1183,121 +1183,76 @@ def generate_member(common_data, household_ref_id, individual_client_ref_id, ind
         }
     }
 
+# Roles expanded
+ROLES = ["DISTRIBUTOR", "PROVINCIAL_SUPERVISOR", "NATIONAL_SUPERVISOR", "PROXIMITY_SUPERVISOR"]
+
+SERVICE_CODES = ["PerformanceIssue", "SecurityIssues", "DataIssues", "TechnicalIssues", "UserAccountIssues"]
+STATUSES = ["PENDING_ASSIGNMENT", "RESOLVED"]
+
 def generate_transformer_pgr_services(common_data, user_id):
     c = SETTINGS.CAMPAIGN
-    boundary = common_data["boundaryHierarchy"]
-    codes = common_data["boundaryHierarchyCode"]
-
-    use_minimal_boundary = random.choice([True, False])
-    if use_minimal_boundary:
-        bh, bc = boundary_slice(boundary, codes, "country")
-        locality_code = most_specific_locality_code(bc, bh)
-    else:
-        bh, bc = boundary, codes
-        locality_code = most_specific_locality_code(bc, bh)
-
     now = datetime.now(timezone.utc)
-    ingestion_time = now.isoformat() + 'Z'
     timestamp_ms = int(now.timestamp() * 1000)
-    timestamp_iso = now.isoformat().replace('+00:00', 'Z')
-    service_request_id = f"PGR-{now.strftime('%Y-%m-%d')}-{random.randint(1000, 9999):06d}"
 
-    service_codes = ["PerformanceIssue", "SecurityIssues", "DataIssues"]
-    service_code = random.choice(service_codes)
-    application_status = random.choice(["PENDING_ASSIGNMENT", "RESOLVED"])
+    # Pick random boundary depth
+    boundary_entry = random.choice(boundary_data)
+    bh, bc = boundary_entry["hierarchy"], boundary_entry["codes"]
+
+    # Build service meta
+    service_request_id = f"PGR-{now.strftime('%Y-%m-%d')}-{random.randint(1000, 9999):06d}"
+    service_id, account_id, user_uuid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+
+    role = random.choice(ROLES)
+    service_code = random.choice(SERVICE_CODES)
+    application_status = random.choice(STATUSES)
     description = random.choice(["One Time Evaluation", "dfdf", "Issue"])
     source = random.choice(["web", "mobile"])
-    role = random.choice(["DISTRIBUTOR", "PROVINCIAL_SUPERVISOR"])
 
+    # User options (can extend later)
     user_data_options = [
         {
-            "mobileNumber": "7892489611",
-            "name": "Sudesh",
-            "userName": "7892489611",
-            "emailId": None,
-            "id": random.randint(12000, 13000),
-            "roles": [{"code": "DISTRIBUTOR", "name": "Distributor", "tenantId": SETTINGS.CAMPAIGN.tenant_id, "id": None}]
+            "mobileNumber": "7892489611", "name": "Sudesh", "userName": "7892489611",
+            "emailId": None, "id": random.randint(12000, 13000),
+            "roles": [{"code": "DISTRIBUTOR", "name": "Distributor", "tenantId": c.tenant_id}]
         },
         {
-            "mobileNumber": "9977882643",
-            "name": "Abhishek",
-            "userName": "9977882643",
-            "emailId": "raj@gmail.com",
-            "id": random.randint(9000, 10000),
-            "roles": [{"code": "CITIZEN", "name": "Citizen", "tenantId": SETTINGS.CAMPAIGN.tenant_id, "id": None}]
+            "mobileNumber": "9977882643", "name": "Abhishek", "userName": "9977882643",
+            "emailId": "raj@gmail.com", "id": random.randint(9000, 10000),
+            "roles": [{"code": "CITIZEN", "name": "Citizen", "tenantId": c.tenant_id}]
         },
         {
-            "mobileNumber": "8689982982",
-            "name": "HF Referral",
-            "userName": "8689982982",
-            "emailId": None,
-            "id": random.randint(12000, 13000),
-            "roles": [{"code": "CITIZEN", "name": "Citizen", "tenantId": SETTINGS.CAMPAIGN.tenant_id, "id": None}]
+            "mobileNumber": "8689982982", "name": "HF Referral", "userName": "8689982982",
+            "emailId": None, "id": random.randint(12000, 13000),
+            "roles": [{"code": "CITIZEN", "name": "Citizen", "tenantId": c.tenant_id}]
         }
     ]
     user_data = random.choice(user_data_options)
-    name_of_users = ["Sudesh", "Abhishek", "Lata"]
-    user_names = ["7892489611", "ProvSup-1", "USR-006054"]
 
     additional_detail_options = [
         f'{{"household":{{"id":"H-{now.strftime("%Y-%m-%d")}-{random.randint(10000, 99999):06d}","contactNo":"{user_data["mobileNumber"]}","image_1":"{str(uuid.uuid4())}"}}}}',
-        f'{{"supervisorName":null,"supervisorContactNumber":null}}',
-        f'{{"supervisorName":null,"supervisorContactNumber":null,"otherComplaintDescription":null}}'
+        '{"supervisorName":null,"supervisorContactNumber":null}',
+        '{"supervisorName":null,"supervisorContactNumber":null,"otherComplaintDescription":null}'
     ]
     additional_detail = random.choice(additional_detail_options)
-
-    project_data_options = [
-        {
-            "campaignId": None,
-            "projectType": None,
-            "projectTypeId": None,
-            "projectName": None,
-            "campaignNumber": None,
-            "projectId": None
-        },
-        {
-            "campaignId": c.campaign_id,
-            "projectType": c.project_type,
-            "projectTypeId": c.project_type_id,
-            "projectName": common_data.get("projectName", "SMC Campaign"),
-            "campaignNumber": c.campaign_number,
-            "projectId": common_data.get("projectId")
-        },
-        {
-            "campaignId": None,
-            "projectType": "LLIN-mz",
-            "projectTypeId": "b1107f0c-7a91-4c76-afc2-a279d8a7b76a",
-            "projectName": "SMC Campaign",
-            "campaignNumber": "f5F6xAskA05",
-            "projectId": "da8c009a-1f75-43f0-8f0c-926d351f16ab"
-        }
-    ]
-    project_data = random.choice(project_data_options)
-    user_address = random.choice([None, "dg"])
-    self_complaint = random.choice([None, False])
-
-    service_id = str(uuid.uuid4())
-    account_id = str(uuid.uuid4())
-    user_uuid = str(uuid.uuid4())
-
+    time_diff_ms = random.randint(3600_000, 86_400_000)
     return {
         "_index": TRANSFORMER_PGR_SERVICES_INDEX,
         "_id": service_request_id,
         "_source": {
-            "ingestionTime": ingestion_time,
+            "ingestionTime": now.isoformat() + "Z",
             "Data": {
                 "boundaryHierarchy": bh,
+                "boundaryHierarchyCode": bc,
                 "role": role,
-                "taskDates": random_date_str(),
+                "taskDates": now.strftime("%Y-%m-%d"),
                 "campaignId": c.campaign_id,
                 "projectType": c.project_type,
-                "localityCode": locality_code,
-                "nameOfUser": random.choice(name_of_users),
-                "userName": random.choice(user_names),
-                "boundaryHierarchyCode": bc,
-                "userAddress": user_address,
+                "localityCode": bc.get("locality") or bc.get("district") or bc.get("province") or bc["country"],
+                "nameOfUser": user_data["name"],
+                "userName": user_data["userName"],
+                "userAddress": random.choice([None, "dg"]),
                 "projectTypeId": c.project_type_id,
-                "@timestamp": timestamp_iso,
+                "@timestamp": now.isoformat().replace("+00:00", "Z"),
                 "service": {
                     "serviceRequestId": service_request_id,
                     "address": None,
@@ -1309,19 +1264,19 @@ def generate_transformer_pgr_services(common_data, user_id):
                     "accountId": account_id,
                     "additionalDetail": additional_detail,
                     "applicationStatus": application_status,
-                    "auditDetails": {
+                    "auditDetails":{
                         "lastModifiedTime": timestamp_ms,
                         "createdBy": user_uuid,
                         "lastModifiedBy": user_uuid,
-                        "createdTime": timestamp_ms - random.randint(1000, 10000)
+                        "createdTime": timestamp_ms - time_diff_ms
                     },
-                    "tenantId": SETTINGS.CAMPAIGN.tenant_id,
+                    "tenantId": c.tenant_id,
                     "id": service_id,
                     "user": {
                         "mobileNumber": user_data["mobileNumber"],
                         "roles": user_data["roles"],
                         "name": user_data["name"],
-                        "tenantId": SETTINGS.CAMPAIGN.tenant_id,
+                        "tenantId": c.tenant_id,
                         "active": True,
                         "emailId": user_data["emailId"],
                         "id": user_data["id"],
@@ -1329,11 +1284,11 @@ def generate_transformer_pgr_services(common_data, user_id):
                         "type": "EMPLOYEE",
                         "uuid": user_uuid
                     },
-                    "selfComplaint": self_complaint
+                    "selfComplaint": random.choice([None, False])
                 },
-                "projectName": project_data["projectName"],
-                "campaignNumber": project_data["campaignNumber"],
-                "projectId": project_data["projectId"]
+                "projectName": c.project_type,
+                "campaignNumber": c.campaign_number,
+                "projectId": c.campaign_id
             }
         }
     }
