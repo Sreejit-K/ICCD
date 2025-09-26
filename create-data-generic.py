@@ -95,7 +95,7 @@ class Settings:
     max_retries: int = 10
     retry_delay: int = 5
     # Generation sizes
-    num_households: int = 100
+    num_households: int = 1000
 
 
 SETTINGS = Settings()  # global single source of truth
@@ -1757,7 +1757,7 @@ def generate_project_staff(common_data, user_id):
     codes = common_data["boundaryHierarchyCode"]
 
     staff_id = f"PTS-{now.strftime('%Y-%m-%d')}-{random.randint(100000, 999999):06d}"
-    roles = ["DISTRICT_SUPERVISOR", "PROVINCIAL_SUPERVISOR", "NATIONAL_SUPERVISOR", "WAREHOUSE_MANAGER", "TEAM_SUPERVISOR"]
+    roles = ["DISTRICT_SUPERVISOR", "PROVINCIAL_SUPERVISOR", "NATIONAL_SUPERVISOR", "WAREHOUSE_MANAGER", "TEAM_SUPERVISOR","DISTRIBUTOR"]
     role = random.choice(roles)
 
     staff_names = ["Margaret Barrett", "Erick Jarvis", "Lata", "John Smith", "Sarah Wilson", "Ahmed Hassan", "Maria Santos"]
