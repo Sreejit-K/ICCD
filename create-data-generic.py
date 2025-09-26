@@ -884,7 +884,7 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
             "latitude": str(latitude),
             "isVulnerable": True,
             "test_b9aa6f50056e": "test_dcfafb1be02f",
-            "cycleIndex": "01",
+            "cycleIndex": random.choice([("01","02")]),
             "noOfRooms": random.randint(1, 15),
             "pregnantWomen": random.randint(0, 1),
             "longitude": str(longitude)
@@ -892,7 +892,7 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
         {
             "memberCount": str(random.randint(1, 3)),
             "dateOfRegistration": f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{random.randint(100000, 999999)}",
-            "cycleIndex": random.choice([None, "01"]),
+            "cycleIndex": random.choice([("01","02")]),
             "pregnantWomenCount": str(random.randint(0, 2)),
             "administrativeArea": boundary.get("village", boundary.get("locality")),
             "childrenCount": str(random.randint(0, 4)),
@@ -1013,7 +1013,7 @@ def generate_household(common_data, user_id):
                 "additionalDetails": {
                     "memberCount": member_count_str,
                     "pregnantWomenCount": preg_count_str,
-                    "cycleIndex": "01",
+                    "cycleIndex": random.choice([("01","02")]),
                     "administrativeArea": administrative_area,
                     "childrenCount": child_count_str
                 },
@@ -1107,7 +1107,7 @@ def generate_member(common_data, household_ref_id, individual_client_ref_id, ind
         {
             "memberCount": str(random.randint(1, 6)),
             "pregnantWomenCount": str(random.randint(0, 2)),
-            "cycleIndex": random.choice(["01", None]),
+            "cycleIndex": random.choice(["01", None,"02"]),
             "administrativeArea": boundary.get("village", boundary.get("locality")),
             "childrenCount": str(random.randint(0, 4))
         },
@@ -1115,7 +1115,7 @@ def generate_member(common_data, household_ref_id, individual_client_ref_id, ind
             "houseStructureTypes": random.choice(["CEMENT", "MUD", "WOOD", "REEDS", "CLAY", "METAL"]),
             "children": str(random.randint(0, 5)),
             "latitude": str(latitude),
-            "cycleIndex": "01",
+            "cycleIndex": random.choice([("01","02")]),
             "noOfRooms": str(random.randint(1, 9)),
             "pregnantWomen": str(random.randint(0, 2)),
             "longitude": str(longitude)
@@ -1345,7 +1345,7 @@ def generate_project(common_data, user_id):
                 "targetType": random.choice(["HOUSEHOLD", "INDIVIDUAL", "PRODUCT"]),
                 "projectBeneficiaryType": random.choice(["HOUSEHOLD", "INDIVIDUAL"]),
                 "productVariant": "PVAR-2025-01-09-000103,PVAR-2025-01-09-000104",
-                "additionalDetails": {"doseIndex": ["01"], "cycleIndex": ["01"]},
+                "additionalDetails": {"doseIndex": ["01"], "cycleIndex": [random.choice(["01","02"])]},
                 "localityCode": most_specific_locality_code(codes, boundary),
                 "projectName": common_data.get("projectName", "IRS Sep"),
                 "projectTypeId": c.project_type_id,
@@ -1512,7 +1512,7 @@ def generate_stock(common_data, stock_id=None, client_ref_id=None, facility_id=N
                 "additionalDetails": {
                     "lng": longitude,
                     "name": common_data["nameOfUser"],
-                    "cycleIndex": "01",
+                    "cycleIndex": random.choice(["01", "02"]),
                     "lat": latitude
                 },
                 "userAddress": None,
@@ -1656,7 +1656,7 @@ def generate_service_task(common_data, user_id):
                 "nameOfUser": common_data["nameOfUser"],
                 "userName": common_data["userName"],
                 "boundaryHierarchyCode": bc,
-                "additionalDetails": {"cycleIndex": "01"},
+                "additionalDetails": {"cycleIndex": random.choice(["01", "02"])},
                 "userId": user_id,
                 "userAddress": None,
                 "projectTypeId": c.project_type_id,
@@ -1791,7 +1791,7 @@ def generate_project_staff(common_data, user_id):
                 "nameOfUser": name_of_user,
                 "userName": user_name,
                 "boundaryHierarchyCode": bc,
-                "additionalDetails": {"doseIndex": ["01"], "cycleIndex": ["01"]},
+                "additionalDetails": {"doseIndex": ["01"], "cycleIndex": [random.choice(["01","02"])]},
                 "userId": str(uuid.uuid4()),
                 "userAddress": None,
                 "projectTypeId": c.project_type_id,
@@ -1827,7 +1827,7 @@ def generate_household_coverage_daily_iccd(common_data, user_id):
             "date": date_str,
             "province": province,
             "campaignId": c.campaign_id,
-            "cycle": "01",
+            "cycle": random.choice(["01", "02"]),
             "total_households_visited": random.randint(1, 25)
         }
     }
@@ -1845,7 +1845,7 @@ def generate_household_coverage_summary_iccd(common_data, user_id):
         "_source": {
             "province": province,
             "campaignId": c.campaign_id,
-            "cycle": "01",
+            "cycle": random.choice(["01", "02"]),
             "total_households_visited": random.randint(1, 8)
         }
     }
@@ -1924,7 +1924,7 @@ def generate_ineligible_summary(common_data, user_id):
             "total_population_registered": total_registered,
             "campaignId": c.campaign_id,
             "district": district,
-            "cycle": "01",
+            "cycle": random.choice(["01", "02"]),
             "ineligible_population_total": ineligible_count
         }
     }
@@ -1955,7 +1955,7 @@ def generate_user_sync(common_data, user_id):
             "latitude": str(latitude),
             "isVulnerable": True,
             "test_b9aa6f50056e": "test_dcfafb1be02f",
-            "cycleIndex": "01",
+            "cycleIndex": random.choice(["01","02"]),
             "noOfRooms": random.randint(1, 15),
             "pregnantWomen": random.randint(0, 1),
             "longitude": str(longitude)
@@ -1963,7 +1963,7 @@ def generate_user_sync(common_data, user_id):
         {
             "memberCount": str(random.randint(1, 3)),
             "dateOfRegistration": f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{random.randint(100000, 999999)}",
-            "cycleIndex": random.choice([None, "01"]),
+            "cycleIndex": random.choice([None, "01","02"]),
             "pregnantWomenCount": str(random.randint(0, 1)),
             "administrativeArea": boundary.get("village") or boundary.get("locality"),
             "childrenCount": str(random.randint(0, 3))
@@ -2068,7 +2068,7 @@ def generate_referral(common_data, user_id, individual_id):
                 "individualId": individual_id,
                 "userName": common_data["userName"],
                 "boundaryHierarchyCode": codes,
-                "additionalDetails": {"cycleIndex": "01"},
+                "additionalDetails": {"cycleIndex": random.choice(["01","02"])},
                 "userAddress": None,
                 "projectTypeId": c.project_type_id,
                 "referral": {
@@ -2611,7 +2611,7 @@ def generate_hf_referral(common_data, user_id, collapse_to_country: bool = False
             # ✅ keep the passed-in code slice
             "boundaryHierarchyCode": bhc,
             "localityCode": loc_code,  # ✅ now present
-            "additionalDetails": {"cycleIndex": "01"},
+            "additionalDetails": {"cycleIndex": random.choice(["01","02"])},
             "userAddress": None,
             "projectTypeId": c.project_type_id,
             "syncedDate": random_date_str(),
