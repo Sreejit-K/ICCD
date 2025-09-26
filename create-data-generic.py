@@ -95,7 +95,7 @@ class Settings:
     max_retries: int = 10
     retry_delay: int = 5
     # Generation sizes
-    num_households: int = 1000
+    num_households: int = 100
 
 
 SETTINGS = Settings()  # global single source of truth
