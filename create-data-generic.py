@@ -109,7 +109,7 @@ PROJECT_TASK_INDEX = "project-task-index-v1"
 TRANSFORMER_PGR_SERVICES_INDEX = "transformer-pgr-services"
 PROJECT_INDEX = "project-index-v1"
 POPULATION_COVERAGE_INDEX = "population-coverage-summary-1"
-POP_SUMMARY_DATEWISE_INDEX = "population-coverage-summary-datewise-1_v2"
+POP_SUMMARY_DATEWISE_INDEX = "population-coverage-summary-datewise_v3"
 STOCK_INDEX = "stock-index-v1"
 SERVICE_TASK_INDEX = "service-task-v1"
 ATTENDANCE_LOG_INDEX = "attendance-log-index-v1"
@@ -1931,6 +1931,7 @@ def generate_ineligible_summary(common_data, user_id):
             "campaignId": c.campaign_id,
             "district": district,
             "cycle": random.choice(["01", "02"]),
+            "projectTypeId": c.project_type_id,
             "ineligible_population_total": ineligible_count
         }
     }
