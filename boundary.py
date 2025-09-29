@@ -1,4 +1,4 @@
-boundary_data = [
+dary_data = [
     {
         "hierarchy": {
             "country": "Nigeria",
