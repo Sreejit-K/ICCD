@@ -36,6 +36,30 @@ fake = Faker('fr_FR')
 # Config Models
 # ========================
 
+@dataclass
+class DateRangeConfig:
+    """Campaign date range configuration"""
+    # Campaign start: Monday, August 25, 2025 12:00:00 AM
+    CAMPAIGN_START_MS: int = 1756060200000
+    # Campaign end: Wednesday, December 31, 2025 11:59:59 PM
+    CAMPAIGN_END_MS: int = 1767205799000
+    
+    @property
+    def start_datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.CAMPAIGN_START_MS / 1000, tz=timezone.utc)
+    
+    @property
+    def end_datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.CAMPAIGN_END_MS / 1000, tz=timezone.utc)
+    
+    @property
+    def start_epoch_seconds(self) -> int:
+        return self.CAMPAIGN_START_MS // 1000
+    
+    @property
+    def end_epoch_seconds(self) -> int:
+        return self.CAMPAIGN_END_MS // 1000
+    
 @dataclass(frozen=True)
 class CampaignConfig:
     campaign_id: str
@@ -88,6 +112,50 @@ class GeoConfig:
     DEFAULT_COUNTRY: str = "Nigeria"
 
 @dataclass
+class UserConfig:
+    """User configuration for synthetic data generation"""
+    # User names (actual names)
+    USER_NAMES: List[str] = field(default_factory=lambda: [
+        "Lata", "Ram", "Sita", "John", "Priya", "Nina", 
+        "Amit", "Ravi", "Suresh", "Geeta", "SK1", 
+        "ICD User One", "Margaret Barrett", "Erick Jarvis", 
+        "John Smith", "Sarah Wilson", "Ahmed Hassan", "Maria Santos",
+        "Distributor One", "Distributor Two", "Distributor Three", 
+        "Team Leader Alpha", "Supervisor Beta", "Kanishq", "Asha", 
+        "Samuel", "Mary", "James Brown", "Sudesh", "Abhishek", 
+        "HF Referral", "HF Supervisor", "HF Coordinator",
+        "User with all roles"
+    ])
+    
+    # System user names (USR-XXXXXX format)
+    SYSTEM_USER_NAMES: List[str] = field(default_factory=lambda: [
+        "USR-006196", "USR-006204", "USR-006230", "USR-006345", 
+        "USR-006362", "USR-006187", "USR-006214", "USR-006360", 
+        "USR-006359", "USR-006358", "USR-006057",
+        "ASS-DSL-1", "ASS-DSL-2", "ASS-DSL-3",
+        "heal-att-taker-1", "health-att-taker-4578", "att-supervisor-001",
+        "heal-demo-1", "heal-demo-2", "heal-demo-3", 
+        "health-demo-4790", "health-demo-4791"
+    ])
+    
+    # Roles
+    ROLES: List[str] = field(default_factory=lambda: [
+        "DISTRIBUTOR", "PROVINCIAL_SUPERVISOR", "NATIONAL_SUPERVISOR",
+        "PROXIMITY_SUPERVISOR", "DISTRICT_SUPERVISOR", "TEAM_SUPERVISOR",
+        "HEALTH_FACILITY_SUPERVISOR", "COMMUNITY_SUPERVISOR",
+        "LOCAL_MONITOR", "SUPERVISOR", "HEALTH_FACILITY_WORKER",
+        "WAREHOUSE_MANAGER", "LOGISTIC_FOCAL_POINT",
+        "COMMUNITY_DISTRIBUTOR", "MOBILIZER"
+    ])
+    
+    def get_random_user(self) -> Tuple[str, str]:
+        """Returns (userName, nameOfUser)"""
+        return (
+            random.choice(self.SYSTEM_USER_NAMES),
+            random.choice(self.USER_NAMES)
+        )
+
+@dataclass
 class ESConfig:
     host: str = "http://elasticsearch-master.es-cluster:9200/"
     # Basic auth header value (Base64 of "user:pass"), keep configurable
@@ -97,6 +165,40 @@ class ESConfig:
     bulk_chunk_lines: int = 50000
     bulk_chunk_retries: int = 5
     bulk_retry_delay: int = 5
+
+@dataclass
+class FacilityConfig:
+    """Facility configuration extracted from existing data"""
+    # Facility IDs from stock-index-v1
+    FACILITY_IDS: List[str] = field(default_factory=lambda: [
+        "F-2025-07-31-008941",  # Bednet L5
+        "F-2025-01-16-008408",  # LLIN Facilities
+        "F-2025-07-31-008938",  # Bednet L2
+        "F-2025-07-31-008943",  # Bednet L7
+    ])
+    
+    # Facility names mapping
+    FACILITY_NAMES: Dict[str, str] = field(default_factory=lambda: {
+        "F-2025-07-31-008941": "Bednet L5",
+        "F-2025-01-16-008408": "LLIN Facilities",
+        "F-2025-07-31-008938": "Bednet L2",
+        "F-2025-07-31-008943": "Bednet L7",
+    })
+    
+    # Facility types
+    FACILITY_TYPES: List[str] = field(default_factory=lambda: [
+        "WAREHOUSE",
+        "Health Facility",
+        "Storing Resource"
+    ])
+    
+    def get_random_facility(self) -> Tuple[str, str]:
+        """Returns (facility_id, facility_name)"""
+        fid = random.choice(self.FACILITY_IDS)
+        return fid, self.FACILITY_NAMES[fid]
+    
+    def get_random_facility_type(self) -> str:
+        return random.choice(self.FACILITY_TYPES)
 
 
 @dataclass
@@ -109,6 +211,8 @@ class Settings:
         project_type_id="ea1bb2e7-06d8-4fe4-ba1e-f4a6363a21be",
         tenant_id="mz",
     )
+    # Date range for the campaign
+    DATE_RANGE: DateRangeConfig = field(default_factory=DateRangeConfig)
     # Geo behavior
     GEO: GeoConfig = GeoConfig()
     # Elasticsearch behavior
@@ -118,6 +222,10 @@ class Settings:
     retry_delay: int = 5
     # Generation sizes
     num_households: int = 1000
+    # Facility config
+    FACILITY: FacilityConfig = field(default_factory=FacilityConfig)
+    # User config
+    USER: UserConfig = field(default_factory=UserConfig)
 
 
 SETTINGS = Settings()  # global single source of truth
@@ -392,7 +500,6 @@ boundary_data = [
 project_type = ["MR-DN"]
 product_name = ["SP 500mg", "SP 250mg", "AQ 500mg"]
 project_names = ["SMC Campaign 1", "SMC Campaign 2", "SMC Campaign 3", "SMC Campaign 4", "Malaria Control Drive", "Seasonal Immunization", "Child Health Program", "ICCD SMC Campaign"]
-names = ["Lata", "Ram", "Sita", "John", "Priya", "Nina", "Amit", "Ravi", "Suresh", "Geeta"]
 
 # ========================
 # Helpers
@@ -411,9 +518,9 @@ def _random_point_in_circle(center_lat: float, center_lon: float, radius_km: flo
     return (round(center_lat + dlat, 6), round(center_lon + dlon, 6))
 
 
-def random_epoch(start_year=2020, end_year=2026):
-    start = int(time.mktime(datetime(start_year, 1, 1).timetuple()))
-    end = int(time.mktime(datetime(end_year, 12, 31).timetuple()))
+def random_epoch(start_year=None, end_year=None):
+    start = SETTINGS.DATE_RANGE.start_epoch_seconds
+    end = SETTINGS.DATE_RANGE.end_epoch_seconds
     return random.randint(start, end)
 
 def random_date(start, end):
@@ -422,7 +529,9 @@ def random_date(start, end):
 def cur_timestamp():
     return int(datetime.now().timestamp() * 1000)
 
-def random_timestamp_range(start = datetime(2025, 9, 20), end = datetime(2025, 9, 25)) -> int:
+def random_timestamp_range(start=None, end=None) -> int:
+    start = start or SETTINGS.DATE_RANGE.start_datetime
+    end = end or SETTINGS.DATE_RANGE.end_datetime
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
     random_ts = random.randint(start_ts, end_ts)
@@ -469,8 +578,8 @@ def random_date_str(a=None, b=None) -> str:
         # Case 2: legacy behavior with year ints (or None)
         start_year = a if isinstance(a, int) else 2025
         end_year = b if isinstance(b, int) else start_year
-        start = datetime(start_year, 9, 20)
-        end = datetime(end_year, 9, 25)
+        start = SETTINGS.DATE_RANGE.start_datetime
+        end = SETTINGS.DATE_RANGE.end_datetime
 
     # clamp to UTC (optional)
     if start.tzinfo is None:
@@ -908,8 +1017,8 @@ def getSharedData(user_id, loop_index):
             "createdTime": timestamp,
             "lastModifiedTime": timestamp
         },
-        "nameOfUser": random.choice(names),
-        "userName": f"USR-{random.randint(1, 999999):06}",
+        "userName": random.choice(SETTINGS.USER.SYSTEM_USER_NAMES),
+        "nameOfUser": random.choice(SETTINGS.USER.USER_NAMES),
         "boundaryHierarchy": selected_boundary["hierarchy"],
         "boundaryHierarchyCode": selected_boundary["codes"],
         "projectType": SETTINGS.CAMPAIGN.project_type,
@@ -952,9 +1061,7 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
     product_names = ["Bednet - Grade-1", "SP - 500mg", "SP - 250mg", "AQ 500mg"]
     product_name = random.choice(product_names)
 
-    user_names = ["USR-006230", "USR-006345", "USR-006362"]
-    name_of_users = ["Lata", "SK1", "ICD User One"]
-
+    user_name, name_of_user = SETTINGS.USER.get_random_user()
     product_variants = [
         "PVAR-2025-07-30-000139",
         f"PVAR-{now.strftime('%Y-%m-%d')}-{random.randint(100000, 999999):06d}"
@@ -1049,8 +1156,8 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "memberCount": random.randint(1, 3),
                 "localityCode": most_specific_locality_code(codes, boundary),
                 "dateOfBirth": None,
-                "nameOfUser": random.choice(name_of_users),
-                "userName": random.choice(user_names),
+                "nameOfUser": name_of_user,
+                "userName": user_name,
                 "additionalDetails": additional_details,
                 "userAddress": None,
                 "isDelivered": random.choice([True, False]),
@@ -1230,8 +1337,7 @@ def generate_member(common_data, household_ref_id, individual_client_ref_id, ind
     ]
     additional_details = random.choice(additional_details_options)
 
-    user_names = ["USR-006362", "USR-006187", "USR-006230"]
-    name_of_users = ["ICD User One", "Lata"]
+    user_name, name_of_user = SETTINGS.USER.get_random_user()
 
     return {
         "_index": MEMBER_INDEX,
@@ -1248,8 +1354,8 @@ def generate_member(common_data, household_ref_id, individual_client_ref_id, ind
                 "projectType": c.project_type,
                 "localityCode": most_specific_locality_code(codes, boundary),
                 "dateOfBirth": dob if gender is not None else None,
-                "nameOfUser": random.choice(name_of_users),
-                "userName": random.choice(user_names),
+                "nameOfUser": name_of_user,
+                "userName": user_name,
                 "geoPoint": [longitude, latitude],
                 "additionalDetails": additional_details,
                 "userAddress": None,
@@ -1406,8 +1512,8 @@ def generate_project(common_data, user_id):
     timestamp = now.isoformat() + 'Z'
     project_id = str(uuid.uuid4())
     project_number = f"PJT-{now.strftime('%Y-%m-%d')}-{random.randint(100000, 999999)}"
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     start_timestamp = int(start_date.timestamp() * 1000)
     end_timestamp = int(end_date.timestamp() * 1000)
     duration_days = random.randint(5, 8)
@@ -1420,8 +1526,8 @@ def generate_project(common_data, user_id):
     # Generate random distribution data for aggregation queries
     total_administered_resources = random.randint(50, 500)  # Added for ES aggregation field
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
     
@@ -1476,8 +1582,8 @@ def generate_population_coverage_summary(common_data, user_id):
     total_female = total_pop - total_male
     refused = random.randint(0, 10)
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     random_date_obj = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = random_date_obj.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
@@ -1518,8 +1624,8 @@ def generate_population_coverage_summary_datewise(common_data, user_id):
     province = boundary["province"]
     district = boundary["district"]
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
 
@@ -1568,6 +1674,10 @@ def generate_stock(common_data, stock_id=None, client_ref_id=None, facility_id=N
     boundary_codes = common_data["boundaryHierarchyCode"]
 
     latitude, longitude = pick_lat_lon_for_boundary(boundary)
+    if not facility_id:
+        facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
+    else:
+        facility_name = SETTINGS.FACILITY.FACILITY_NAMES.get(facility_id, "Unknown Facility")
 
     return {
         "_index": STOCK_INDEX,
@@ -1603,7 +1713,7 @@ def generate_stock(common_data, stock_id=None, client_ref_id=None, facility_id=N
                 "syncedDate": now.strftime("%Y-%m-%d"),
                 "createdTime": created_time,
                 "id": stock_id if stock_id else f"S-{now.strftime('%Y-%m-%d')}-000{random.randint(600,700)}",
-                "facilityName": "Bednet L5",
+                "facilityName": facility_name,
                 "syncedTimeStamp": timestamp,
                 "facilityLevel": None,
                 "facilityTarget": None,
@@ -1928,8 +2038,8 @@ def generate_household_coverage_daily_iccd(common_data, user_id):
         return None
     province = boundary["province"]
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     random_date_obj = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = random_date_obj.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
@@ -2019,8 +2129,8 @@ def generate_ineligible_summary(common_data, user_id):
     province = boundary["province"]
     district = boundary["district"]
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
 
@@ -2436,10 +2546,7 @@ def generate_census(common_data, *, boundary_code=None, with_hidden_latlong=Fals
     ancestral = build_boundary_ancestral_path_from_codes(codes)
 
     # Facility bits from your samples (you can also draw from a facility list you maintain)
-    facility_id = random.choice([
-        "F-2025-07-31-008943", "F-2025-02-11-008917", "F-2025-05-20-009001"
-    ])
-    facility_name = random.choice(["Bednet L7", "AS Pemba", "Primary HC West"])
+    facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
 
     additional_details = {
         "facilityId": facility_id,
@@ -2553,7 +2660,7 @@ def generate_plan(common_data, *, campaign_id=None, plan_config_id=None, localit
     locality = locality_code or codes.get("village") or codes.get("locality")
 
     # Facility and IDs
-    facility_id = random.choice(["F-2025-02-11-008917", "F-2025-07-31-008943"])
+    facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
     campaign_id = campaign_id or random.choice([
         "ae8a7a19-ab74-4cf6-9db1-4cfbeb6583d8",
         "17d06b2a-857f-4fab-aac1-bc4b2001c665",
@@ -2832,13 +2939,21 @@ def generate_stock_reconciliation(common_data: dict,
     campaign_number  = campaign_number  or common_data.get("campaignNumber")  or "CMP-2025-08-25-001466"
     user_name        = user_name        or common_data.get("userName")        or "USR-006196"
     name_of_user     = name_of_user     or common_data.get("nameOfUser")      or random.choice(["Lata", "James Brown"])
-    facility_id      = facility_id      or common_data.get("facilityId")      or random.choice(["F-2025-07-31-008941","F-2025-07-31-008938","F-2025-04-08-008932"])
-    facility_name    = facility_name    or common_data.get("facilityName")    or random.choice(["Bednet L5","Bednet L2","Facility Storage","Facility Storage Grand Gedeh","Destination Warehouse 5","LLIN Facilities"])
     product_variant_id = product_variant_id or common_data.get("productVariantId") or random.choice(["PVAR-2025-01-09-000099","PVAR-2025-01-08-000094","PVAR-2025-07-30-000134"])
     product_name     = product_name     or common_data.get("productName")     or random.choice(["SP - 250mg","Bednet - Grade 1"])
     locality_code    = locality_code    or common_data.get("localityCode")    or "MICROPLAN_MO"
     boundary_hierarchy = boundary_hierarchy or common_data.get("boundaryHierarchy") or {"country": "Nigeria"}
     boundary_hierarchy_code = boundary_hierarchy_code or common_data.get("boundaryHierarchyCode") or {"country": "MICROPLAN_MO"}
+
+    if not facility_id:
+        facility_id = common_data.get("facilityId")
+        if not facility_id:
+            facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
+        else:
+            facility_name = SETTINGS.FACILITY.FACILITY_NAMES.get(facility_id, "Unknown Facility")
+    else:
+        facility_name = facility_name or SETTINGS.FACILITY.FACILITY_NAMES.get(facility_id, "Unknown Facility")
+
 
     # --- stock math (align with samples) ---
     if received is None and issued is None and returned is None and lost is None and damaged is None:
@@ -2967,14 +3082,11 @@ def generate_plan_facility(common_data: dict, user_id: str,
     service_boundaries_value = maybe_service_boundaries(code_pool)  # "" or CSV
 
     facility_id = random_facility_id()
-    facility_name = facility_name or random.choice([
-        "New Facility", "AS Pemba", "Armazem distrital de Pemba ",
-        "Armazem distrital de Mecufi", "Dundun Hp New",
-        "Bednet L1", "Bednet L2", "Bednet L3", "Bednet L4", "Bednet L5", "Bednet L6", "Bednet L7",
-        "NPHC IYERE"
-    ])
+    if not facility_name:
+        _, facility_name = SETTINGS.FACILITY.get_random_facility()
+    facility_type = facility_type or SETTINGS.FACILITY.get_random_facility_type()
     fixed_post_yes_no = fixed_post_yes_no or random.choice(["Yes", "No"])
-    facility_type = facility_type or random.choice(["Warehouse", "Health Facility", "Storing Resource"])
+    facility_type = facility_type or SETTINGS.FACILITY.get_random_facility_type()
 
     lat = None if random.random() < 0.7 else 10
     lon = None if random.random() < 0.7 else 10
