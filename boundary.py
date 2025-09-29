@@ -1,4 +1,4 @@
-kebbi_state_data = [
+boundary_data = [
     {
         "hierarchy": {
             "country": "Nigeria",
@@ -68,11 +68,7 @@ kebbi_state_data = [
             "village": "MICROPLAN_MO_17_01_01_03_01_KE_AKWARA_HEALTH_POST",
             "administrativeProvince": "MICROPLAN_MO_17_01_01_BIRNIN_KEBBI"
         }
-    }
-]
-
-
-grand_gedeh_data = [
+    },
     {
         "hierarchy": {
             "country": "Nigeria",
@@ -142,10 +138,7 @@ grand_gedeh_data = [
             "village": "MICROPLAN_MO_13_05_04_01_12_SATYA_TEST",
             "administrativeProvince": "MICROPLAN_MO_13_05_04_TOFFOI_CLINIC"
         }
-    }
-]
-
-kano_state_data = [
+    },
     {
         "hierarchy": {
             "country": "Nigeria",
