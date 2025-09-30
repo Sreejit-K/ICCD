@@ -159,7 +159,7 @@ class UserConfig:
 class ESConfig:
     host: str = "http://elasticsearch-master.es-cluster:9200/"
     # Basic auth header value (Base64 of "user:pass"), keep configurable
-    basic_auth_b64: str = "ZWxhc3RpYzo4ZndiRDZIYkpoNkhVMG9kZHNIbThURUk="
+    basic_auth_b64: str = "*****"
     verify_ssl: bool = False
     # Bulk settings
     bulk_chunk_lines: int = 50000
