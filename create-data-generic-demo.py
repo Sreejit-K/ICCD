@@ -36,57 +36,183 @@ fake = Faker('fr_FR')
 # Config Models
 # ========================
 
+@dataclass
+class DateRangeConfig:
+    """Campaign date range configuration"""
+    # Campaign start: Monday, August 25, 2025 12:00:00 AM
+    CAMPAIGN_START_MS: int = 1756060200000
+    # Campaign end: Wednesday, December 31, 2025 11:59:59 PM
+    CAMPAIGN_END_MS: int = 1767205799000
+    
+    @property
+    def start_datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.CAMPAIGN_START_MS / 1000, tz=timezone.utc)
+    
+    @property
+    def end_datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.CAMPAIGN_END_MS / 1000, tz=timezone.utc)
+    
+    @property
+    def start_epoch_seconds(self) -> int:
+        return self.CAMPAIGN_START_MS // 1000
+    
+    @property
+    def end_epoch_seconds(self) -> int:
+        return self.CAMPAIGN_END_MS // 1000
+    
 @dataclass(frozen=True)
 class CampaignConfig:
     campaign_id: str
     campaign_number: str
     project_type: str
     project_type_id: str
-    tenant_id: str = "dev"
+    tenant_id: str = "mz"
 
 
+@dataclass
 @dataclass
 class GeoConfig:
     FORCE_COORDS: Optional[Tuple[float, float]] = None
     USER_LOCATION_COORDS: List[Dict[str, Any]] = field(default_factory=list)
-
-    # NEW: safe circle just for Mozambique
+    
+    # Updated COUNTRY_CIRCLES for Nigeria with specific states
     COUNTRY_CIRCLES: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
-        # Center of Mozambique (inland), ~250 km radius
-        "Mozambique": {"lat": -17.75, "lon": 35.50, "radius_km": 250},
-        # Nigeria (new)
-        "Nigeria": {"lat": 9.0, "lon": 8.5, "radius_km": 400}
+        # Kebbi State - northwestern Nigeria
+        # Center coordinates: latitude 11.5°N, longitude 4.0°E
+        # Radius to cover the state (~200 km to cover full extent)
+        "Kebbi": {"lat": 11.5, "lon": 4.0, "radius_km": 200},
+        
+        # Kano State - northern Nigeria  
+        # Center coordinates: latitude 11.5°N, longitude 8.5°E
+        # Radius to cover the state (~150 km to cover full extent)
+        "Kano": {"lat": 11.5, "lon": 8.5, "radius_km": 150},
+        
+        # Grand Gedeh (appears to be Liberia, not Nigeria based on context)
+        # Keeping as fallback but this seems like data inconsistency
+       "Grand Gedeh": {"lat": 9.0, "lon": 8.0, "radius_km": 150},
+        
+        # Overall Nigeria coverage (for general fallback)
+        "Nigeria": {"lat": 9.0, "lon": 8.5, "radius_km": 450}
     })
-
+    
     COUNTRY_LATLON_RANGES: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = field(default_factory=lambda: {
-        "Mozambique": ((-26.9, -10.5), (30.2, 41.5)),  # keep as fallback
+        # Kebbi State bounds (lat 10°-13°N, lon 3.5°-6°E)
+        "Kebbi": ((10.0, 13.0), (3.5, 6.0)),
+        
+        # Kano State bounds (lat 10.5°-13°N, lon 7.67°-10.58°E)
+        "Kano": ((10.5, 13.0), (7.67, 10.58)),
+        
+        # Grand Gedeh (Liberia) - approximate bounds
+        "Grand Gedeh": {"lat": 9.0, "lon": 8.0, "radius_km": 150},
+        
+        # Overall Nigeria bounds
         "Nigeria": ((4.2, 13.9), (2.7, 14.7))
     })
-
+    
     DEFAULT_COUNTRY: str = "Nigeria"
 
 @dataclass
+class UserConfig:
+    """User configuration for synthetic data generation"""
+    # User names (actual names)
+    USER_NAMES: List[str] = field(default_factory=lambda: [
+        "Lata", "Ram", "Sita", "John", "Priya", "Nina", 
+        "Amit", "Ravi", "Suresh", "Geeta", "SK1", 
+        "ICD User One", "Margaret Barrett", "Erick Jarvis", 
+        "John Smith", "Sarah Wilson", "Ahmed Hassan", "Maria Santos",
+        "Distributor One", "Distributor Two", "Distributor Three", 
+        "Team Leader Alpha", "Supervisor Beta", "Kanishq", "Asha", 
+        "Samuel", "Mary", "James Brown", "Sudesh", "Abhishek", 
+        "HF Referral", "HF Supervisor", "HF Coordinator",
+        "User with all roles"
+    ])
+    
+    # System user names (USR-XXXXXX format)
+    SYSTEM_USER_NAMES: List[str] = field(default_factory=lambda: [
+        "USR-006196", "USR-006204", "USR-006230", "USR-006345", 
+        "USR-006362", "USR-006187", "USR-006214", "USR-006360", 
+        "USR-006359", "USR-006358", "USR-006057",
+        "ASS-DSL-1", "ASS-DSL-2", "ASS-DSL-3",
+        "heal-att-taker-1", "health-att-taker-4578", "att-supervisor-001",
+        "heal-demo-1", "heal-demo-2", "heal-demo-3", 
+        "health-demo-4790", "health-demo-4791"
+    ])
+    
+    # Roles
+    ROLES: List[str] = field(default_factory=lambda: [
+        "DISTRIBUTOR", "PROVINCIAL_SUPERVISOR", "NATIONAL_SUPERVISOR",
+        "PROXIMITY_SUPERVISOR", "DISTRICT_SUPERVISOR", "TEAM_SUPERVISOR",
+        "HEALTH_FACILITY_SUPERVISOR", "COMMUNITY_SUPERVISOR",
+        "LOCAL_MONITOR", "SUPERVISOR", "HEALTH_FACILITY_WORKER",
+        "WAREHOUSE_MANAGER", "LOGISTIC_FOCAL_POINT",
+        "COMMUNITY_DISTRIBUTOR", "MOBILIZER"
+    ])
+    
+    def get_random_user(self) -> Tuple[str, str]:
+        """Returns (userName, nameOfUser)"""
+        return (
+            random.choice(self.SYSTEM_USER_NAMES),
+            random.choice(self.USER_NAMES)
+        )
+
+@dataclass
 class ESConfig:
-    host: str = "http://elasticsearch-master.es-upgrade:9200/"
+    host: str = "http://elasticsearch-master.es-cluster:9200/"
     # Basic auth header value (Base64 of "user:pass"), keep configurable
-    basic_auth_b64: str = "****"
+    basic_auth_b64: str = "*****"
     verify_ssl: bool = False
     # Bulk settings
     bulk_chunk_lines: int = 50000
     bulk_chunk_retries: int = 5
     bulk_retry_delay: int = 5
 
+@dataclass
+class FacilityConfig:
+    """Facility configuration extracted from existing data"""
+    # Facility IDs from stock-index-v1
+    FACILITY_IDS: List[str] = field(default_factory=lambda: [
+        "F-2025-07-31-008941",  # Bednet L5
+        "F-2025-01-16-008408",  # LLIN Facilities
+        "F-2025-07-31-008938",  # Bednet L2
+        "F-2025-07-31-008943",  # Bednet L7
+    ])
+    
+    # Facility names mapping
+    FACILITY_NAMES: Dict[str, str] = field(default_factory=lambda: {
+        "F-2025-07-31-008941": "Bednet L5",
+        "F-2025-01-16-008408": "LLIN Facilities",
+        "F-2025-07-31-008938": "Bednet L2",
+        "F-2025-07-31-008943": "Bednet L7",
+    })
+    
+    # Facility types
+    FACILITY_TYPES: List[str] = field(default_factory=lambda: [
+        "WAREHOUSE",
+        "Health Facility",
+        "Storing Resource"
+    ])
+    
+    def get_random_facility(self) -> Tuple[str, str]:
+        """Returns (facility_id, facility_name)"""
+        fid = random.choice(self.FACILITY_IDS)
+        return fid, self.FACILITY_NAMES[fid]
+    
+    def get_random_facility_type(self) -> str:
+        return random.choice(self.FACILITY_TYPES)
+
 
 @dataclass
 class Settings:
     # Campaign constants used by all documents
     CAMPAIGN: CampaignConfig = CampaignConfig(
-        campaign_id="43d8cfbe-17d6-46f0-a960-2f959b9e23b9",
-        campaign_number="CMP-2025-09-18-006990",
+        campaign_id="f51ed8bc-2f40-425c-83f8-6dea5d31c169",
+        campaign_number="CMP-2025-08-25-001466",
         project_type="MR-DN",
         project_type_id="ea1bb2e7-06d8-4fe4-ba1e-f4a6363a21be",
-        tenant_id="dev",
+        tenant_id="mz",
     )
+    # Date range for the campaign
+    DATE_RANGE: DateRangeConfig = field(default_factory=DateRangeConfig)
     # Geo behavior
     GEO: GeoConfig = GeoConfig()
     # Elasticsearch behavior
@@ -95,7 +221,11 @@ class Settings:
     max_retries: int = 10
     retry_delay: int = 5
     # Generation sizes
-    num_households: int = 100
+    num_households: int = 1000
+    # Facility config
+    FACILITY: FacilityConfig = field(default_factory=FacilityConfig)
+    # User config
+    USER: UserConfig = field(default_factory=UserConfig)
 
 
 SETTINGS = Settings()  # global single source of truth
@@ -109,14 +239,14 @@ PROJECT_TASK_INDEX = "project-task-index-v1"
 TRANSFORMER_PGR_SERVICES_INDEX = "transformer-pgr-services"
 PROJECT_INDEX = "project-index-v1"
 POPULATION_COVERAGE_INDEX = "population-coverage-summary-1"
-POP_SUMMARY_DATEWISE_INDEX = "population-coverage-summary-datewise_v3"
+POP_SUMMARY_DATEWISE_INDEX = "population-coverage-summary-datewise"  #changes
 STOCK_INDEX = "stock-index-v1"
 SERVICE_TASK_INDEX = "service-task-v1"
 ATTENDANCE_LOG_INDEX = "attendance-log-index-v1"
 PROJECT_STAFF_INDEX = "project-staff-index-v1"
-HOUSEHOLD_COVERAGE_DAILY_ICCD_INDEX = "household-coverage-daily-iccd-v2"
+HOUSEHOLD_COVERAGE_DAILY_ICCD_INDEX = "household-coverage-daily-iccd" #changed
 HOUSEHOLD_COVERAGE_SUMMARY_ICCD_INDEX = "household-coverage-summary-iccd"
-INELIGIBLE_SUMMARY_INDEX = "ineligible-summary-v2"
+INELIGIBLE_SUMMARY_INDEX = "ineligible-summary"    #changed
 USER_SYNC_INDEX = "user-sync-index-v1"
 REFERRAL_INDEX = "referral-index-v1"
 SIDE_EFFECT_INDEX = "side-effect-index-v1"
@@ -158,134 +288,218 @@ PLAN_FACILITY_FILE = "bulk_plan_facilities.jsonl"
 boundary_data = [
     {
         "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
-            "district": "Kaluway",
-            "administrativeProvince": "Pleebo Health Center",
-            "locality": "Hospital Camp/Camp 3",
-            "village": "Hospital Camp",
+            "country": "Nigeria",
+            "province": "Kebbi state"
         },
         "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND",
-            "district": "NEWTEST00222_MO_11_05_KALUWAY__2",
-            "administrativeProvince": "NEWTEST00222_MO_11_05_03_YEDIAKEN_CLINIC",
-            "locality": "NEWTEST00222_MO_11_06_05_14_HOSPITAL_CAMP_CAMP_3",
-            "village": "NEWTEST00222_MO_11_06_05_14_01_HOSPITAL_CAMP"
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_17_KEBBI_STATE"
         }
     },
     {
         "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
-            "district": "Kaluway"
+            "country": "Nigeria",
+            "province": "Kebbi state",
+            "district": "Kebbi"
         },
         "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND",
-            "district": "NEWTEST00222_MO_11_05_KALUWAY__2"
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_17_KEBBI_STATE",
+            "district": "MICROPLAN_MO_17_01_KEBBI"
         }
     },
     {
         "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
-            "district": "Kaluway",
-            "administrativeProvince": "Boniken",
-            "locality": "Hospital Camp/Camp 3",
-            "village": "Hospital Camp",
+            "country": "Nigeria",
+            "province": "Kebbi state",
+            "district": "Kebbi",
+            "administrativeProvince": "Birnin kebbi"
         },
         "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND",
-            "district": "NEWTEST00222_MO_11_05_KALUWAY__2",
-            "administrativeProvince": "NEWTEST00222_MO_11_05_01_BONIKEN",
-            "locality": "NEWTEST00222_MO_11_06_05_14_HOSPITAL_CAMP_CAMP_3",
-            "village": "NEWTEST00222_MO_11_06_05_14_01_HOSPITAL_CAMP"
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_17_KEBBI_STATE",
+            "district": "MICROPLAN_MO_17_01_KEBBI",
+            "administrativeProvince": "MICROPLAN_MO_17_01_01_BIRNIN_KEBBI"
         }
     },
     {
         "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
+            "country": "Nigeria",
+            "province": "Kebbi state",
+            "district": "Kebbi",
+            "locality": "Gawasu damana",
+            "administrativeProvince": "Birnin kebbi"
         },
         "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND"
-        }
-    },
-    {
-        "hierarchy": {"country": "Mozambique"},
-        "codes": {"country": "NEWTEST00222_MO"}
-    },
-    {
-        "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
-            "district": "Pleebo",
-            "administrativeProvince": "Pleebo Health Center",
-            "locality": "Hospital Camp/Camp 3",
-            "village": "Hospital Camp",
-        },
-        "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND",
-            "district": "NEWTEST00222_MO_11_06_PLEEBO",
-            "administrativeProvince": "NEWTEST00222_MO_11_06_05_PLEEBO_HEALTH_CENTER",
-            "locality":"NEWTEST00222_MO_11_06_05_14_HOSPITAL_CAMP_CAMP_3",
-            "village": "NEWTEST00222_MO_11_06_05_14_01_HOSPITAL_CAMP"
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_17_KEBBI_STATE",
+            "district": "MICROPLAN_MO_17_01_KEBBI",
+            "locality": "MICROPLAN_MO_17_01_01_03_GAWASU_DAMANA",
+            "administrativeProvince": "MICROPLAN_MO_17_01_01_BIRNIN_KEBBI"
         }
     },
     {
         "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
-            "district": "Pleebo",
+            "country": "Nigeria",
+            "province": "Kebbi state",
+            "district": "Kebbi",
+            "locality": "Gawasu damana",
+            "village": "Ke akwara health post",
+            "administrativeProvince": "Birnin kebbi"
         },
         "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND",
-            "district": "NEWTEST00222_MO_11_06_PLEEBO"
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_17_KEBBI_STATE",
+            "district": "MICROPLAN_MO_17_01_KEBBI",
+            "locality": "MICROPLAN_MO_17_01_01_03_GAWASU_DAMANA",
+            "village": "MICROPLAN_MO_17_01_01_03_01_KE_AKWARA_HEALTH_POST",
+            "administrativeProvince": "MICROPLAN_MO_17_01_01_BIRNIN_KEBBI"
         }
     },
     {
         "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
-            "district": "Pleebo",
-            "administrativeProvince": "Pleebo Health Center"
+            "country": "Nigeria",
+            "province": "Grand Gedeh"
         },
         "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND",
-            "district": "NEWTEST00222_MO_11_06_PLEEBO",
-            "administrativeProvince": "NEWTEST00222_MO_11_06_05_PLEEBO_HEALTH_CENTER"
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_13_GRAND_GEDEH"
         }
     },
     {
         "hierarchy": {
-            "country": "Mozambique",
-            "province": "Maryland",
-            "district": "Pleebo",
-            "administrativeProvince": "Gbloken Clinic",
-            "locality": "Hospital Camp/Camp 3",
-            "village": "Hospital Camp",
+            "country": "Nigeria",
+            "province": "Grand Gedeh",
+            "district": "Tchien"
         },
         "codes": {
-            "country": "NEWTEST00222_MO",
-            "province": "NEWTEST00222_MO_11_MARYLAND",
-            "district": "NEWTEST00222_MO_11_06_PLEEBO",
-            "administrativeProvince": "NEWTEST00222_MO_11_06_04_GBLOKEN_CLINIC",
-            "locality":"NEWTEST00222_MO_11_06_05_14_HOSPITAL_CAMP_CAMP_3",
-            "village": "NEWTEST00222_MO_11_06_05_14_01_HOSPITAL_CAMP"
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_13_GRAND_GEDEH",
+            "district": "MICROPLAN_MO_13_05_TCHIEN"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Grand Gedeh",
+            "district": "Tchien",
+            "administrativeProvince": "Toffoi Clinic"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_13_GRAND_GEDEH",
+            "district": "MICROPLAN_MO_13_05_TCHIEN",
+            "administrativeProvince": "MICROPLAN_MO_13_05_04_TOFFOI_CLINIC"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Grand Gedeh",
+            "district": "Tchien",
+            "locality": "Toffoi Town",
+            "administrativeProvince": "Toffoi Clinic"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_13_GRAND_GEDEH",
+            "district": "MICROPLAN_MO_13_05_TCHIEN",
+            "locality": "MICROPLAN_MO_13_05_04_01_TOFFOI_TOWN",
+            "administrativeProvince": "MICROPLAN_MO_13_05_04_TOFFOI_CLINIC"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Grand Gedeh",
+            "district": "Tchien",
+            "locality": "Toffoi Town",
+            "village": "Satya Test",
+            "administrativeProvince": "Toffoi Clinic"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_13_GRAND_GEDEH",
+            "district": "MICROPLAN_MO_13_05_TCHIEN",
+            "locality": "MICROPLAN_MO_13_05_04_01_TOFFOI_TOWN",
+            "village": "MICROPLAN_MO_13_05_04_01_12_SATYA_TEST",
+            "administrativeProvince": "MICROPLAN_MO_13_05_04_TOFFOI_CLINIC"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Kano state"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_16_KANO_STATE"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Kano state",
+            "district": "Kano"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_16_01_KANO",
+            "district": "MICROPLAN_MO_16_01_KANO"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Kano state",
+            "district": "Kano",
+            "administrativeProvince": "Ajingi"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_16_KANO_STATE",
+            "district": "MICROPLAN_MO_16_01_KANO",
+            "administrativeProvince": "MICROPLAN_MO_16_01_01_AJINGI"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Kano state",
+            "district": "Kano",
+            "locality": "Ajingi l",
+            "administrativeProvince": "Ajingi"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_16_KANO_STATE",
+            "district": "MICROPLAN_MO_16_01_KANO",
+            "locality": "MICROPLAN_MO_16_01_01_01_AJINGI_L",
+            "administrativeProvince": "MICROPLAN_MO_16_01_01_AJINGI"
+        }
+    },
+    {
+        "hierarchy": {
+            "country": "Nigeria",
+            "province": "Kano state",
+            "district": "Kano",
+            "locality": "Ajingi l",
+            "village": "Fulatan hp",
+            "administrativeProvince": "Ajingi"
+        },
+        "codes": {
+            "country": "MICROPLAN_MO",
+            "province": "MICROPLAN_MO_16_KANO_STATE",
+            "district": "MICROPLAN_MO_16_01_KANO",
+            "locality": "MICROPLAN_MO_16_01_01_01_AJINGI_L",
+            "village": "MICROPLAN_MO_16_01_01_01_01_FULATAN_HP",
+            "administrativeProvince": "MICROPLAN_MO_16_01_01_AJINGI"
         }
     }
 ]
-
 project_type = ["MR-DN"]
 product_name = ["SP 500mg", "SP 250mg", "AQ 500mg"]
 project_names = ["SMC Campaign 1", "SMC Campaign 2", "SMC Campaign 3", "SMC Campaign 4", "Malaria Control Drive", "Seasonal Immunization", "Child Health Program", "ICCD SMC Campaign"]
-names = ["Lata", "Ram", "Sita", "John", "Priya", "Nina", "Amit", "Ravi", "Suresh", "Geeta"]
 
 # ========================
 # Helpers
@@ -304,9 +518,9 @@ def _random_point_in_circle(center_lat: float, center_lon: float, radius_km: flo
     return (round(center_lat + dlat, 6), round(center_lon + dlon, 6))
 
 
-def random_epoch(start_year=2020, end_year=2026):
-    start = int(time.mktime(datetime(start_year, 1, 1).timetuple()))
-    end = int(time.mktime(datetime(end_year, 12, 31).timetuple()))
+def random_epoch(start_year=None, end_year=None):
+    start = SETTINGS.DATE_RANGE.start_epoch_seconds
+    end = SETTINGS.DATE_RANGE.end_epoch_seconds
     return random.randint(start, end)
 
 def random_date(start, end):
@@ -315,7 +529,9 @@ def random_date(start, end):
 def cur_timestamp():
     return int(datetime.now().timestamp() * 1000)
 
-def random_timestamp_range(start = datetime(2025, 9, 20), end = datetime(2025, 9, 25)) -> int:
+def random_timestamp_range(start=None, end=None) -> int:
+    start = start or SETTINGS.DATE_RANGE.start_datetime
+    end = end or SETTINGS.DATE_RANGE.end_datetime
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
     random_ts = random.randint(start_ts, end_ts)
@@ -362,8 +578,8 @@ def random_date_str(a=None, b=None) -> str:
         # Case 2: legacy behavior with year ints (or None)
         start_year = a if isinstance(a, int) else 2025
         end_year = b if isinstance(b, int) else start_year
-        start = datetime(start_year, 9, 20)
-        end = datetime(end_year, 9, 25)
+        start = SETTINGS.DATE_RANGE.start_datetime
+        end = SETTINGS.DATE_RANGE.end_datetime
 
     # clamp to UTC (optional)
     if start.tzinfo is None:
@@ -801,8 +1017,8 @@ def getSharedData(user_id, loop_index):
             "createdTime": timestamp,
             "lastModifiedTime": timestamp
         },
-        "nameOfUser": random.choice(names),
-        "userName": f"USR-{random.randint(1, 999999):06}",
+        "userName": random.choice(SETTINGS.USER.SYSTEM_USER_NAMES),
+        "nameOfUser": random.choice(SETTINGS.USER.USER_NAMES),
         "boundaryHierarchy": selected_boundary["hierarchy"],
         "boundaryHierarchyCode": selected_boundary["codes"],
         "projectType": SETTINGS.CAMPAIGN.project_type,
@@ -845,9 +1061,7 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
     product_names = ["Bednet - Grade-1", "SP - 500mg", "SP - 250mg", "AQ 500mg"]
     product_name = random.choice(product_names)
 
-    user_names = ["USR-006230", "USR-006345", "USR-006362"]
-    name_of_users = ["Lata", "SK1", "ICD User One"]
-
+    user_name, name_of_user = SETTINGS.USER.get_random_user()
     product_variants = [
         "PVAR-2025-07-30-000139",
         f"PVAR-{now.strftime('%Y-%m-%d')}-{random.randint(100000, 999999):06d}"
@@ -942,8 +1156,8 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
                 "memberCount": random.randint(1, 3),
                 "localityCode": most_specific_locality_code(codes, boundary),
                 "dateOfBirth": None,
-                "nameOfUser": random.choice(name_of_users),
-                "userName": random.choice(user_names),
+                "nameOfUser": name_of_user,
+                "userName": user_name,
                 "additionalDetails": additional_details,
                 "userAddress": None,
                 "isDelivered": random.choice([True, False]),
@@ -1123,8 +1337,7 @@ def generate_member(common_data, household_ref_id, individual_client_ref_id, ind
     ]
     additional_details = random.choice(additional_details_options)
 
-    user_names = ["USR-006362", "USR-006187", "USR-006230"]
-    name_of_users = ["ICD User One", "Lata"]
+    user_name, name_of_user = SETTINGS.USER.get_random_user()
 
     return {
         "_index": MEMBER_INDEX,
@@ -1141,8 +1354,8 @@ def generate_member(common_data, household_ref_id, individual_client_ref_id, ind
                 "projectType": c.project_type,
                 "localityCode": most_specific_locality_code(codes, boundary),
                 "dateOfBirth": dob if gender is not None else None,
-                "nameOfUser": random.choice(name_of_users),
-                "userName": random.choice(user_names),
+                "nameOfUser": name_of_user,
+                "userName": user_name,
                 "geoPoint": [longitude, latitude],
                 "additionalDetails": additional_details,
                 "userAddress": None,
@@ -1299,8 +1512,8 @@ def generate_project(common_data, user_id):
     timestamp = now.isoformat() + 'Z'
     project_id = str(uuid.uuid4())
     project_number = f"PJT-{now.strftime('%Y-%m-%d')}-{random.randint(100000, 999999)}"
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     start_timestamp = int(start_date.timestamp() * 1000)
     end_timestamp = int(end_date.timestamp() * 1000)
     duration_days = random.randint(5, 8)
@@ -1313,8 +1526,8 @@ def generate_project(common_data, user_id):
     # Generate random distribution data for aggregation queries
     total_administered_resources = random.randint(50, 500)  # Added for ES aggregation field
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
     
@@ -1369,8 +1582,8 @@ def generate_population_coverage_summary(common_data, user_id):
     total_female = total_pop - total_male
     refused = random.randint(0, 10)
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     random_date_obj = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = random_date_obj.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
@@ -1411,8 +1624,8 @@ def generate_population_coverage_summary_datewise(common_data, user_id):
     province = boundary["province"]
     district = boundary["district"]
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
 
@@ -1461,6 +1674,10 @@ def generate_stock(common_data, stock_id=None, client_ref_id=None, facility_id=N
     boundary_codes = common_data["boundaryHierarchyCode"]
 
     latitude, longitude = pick_lat_lon_for_boundary(boundary)
+    if not facility_id:
+        facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
+    else:
+        facility_name = SETTINGS.FACILITY.FACILITY_NAMES.get(facility_id, "Unknown Facility")
 
     return {
         "_index": STOCK_INDEX,
@@ -1496,7 +1713,7 @@ def generate_stock(common_data, stock_id=None, client_ref_id=None, facility_id=N
                 "syncedDate": now.strftime("%Y-%m-%d"),
                 "createdTime": created_time,
                 "id": stock_id if stock_id else f"S-{now.strftime('%Y-%m-%d')}-000{random.randint(600,700)}",
-                "facilityName": "Bednet L5",
+                "facilityName": facility_name,
                 "syncedTimeStamp": timestamp,
                 "facilityLevel": None,
                 "facilityTarget": None,
@@ -1821,8 +2038,8 @@ def generate_household_coverage_daily_iccd(common_data, user_id):
         return None
     province = boundary["province"]
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     random_date_obj = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = random_date_obj.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
@@ -1912,8 +2129,8 @@ def generate_ineligible_summary(common_data, user_id):
     province = boundary["province"]
     district = boundary["district"]
 
-    start_date = datetime(2025, 9, 20)
-    end_date = datetime(2025, 9, 25)
+    start_date = SETTINGS.DATE_RANGE.start_datetime
+    end_date = SETTINGS.DATE_RANGE.end_datetime
     base_date = start_date + timedelta(seconds=random.randint(0, int((end_date - start_date).total_seconds())))
     date_str = base_date.strftime('%Y-%m-%dT00:00:00.000Z')
 
@@ -1931,7 +2148,6 @@ def generate_ineligible_summary(common_data, user_id):
             "campaignId": c.campaign_id,
             "district": district,
             "cycle": random.choice(["01", "02"]),
-            "projectTypeId": c.project_type_id,
             "ineligible_population_total": ineligible_count
         }
     }
@@ -2330,10 +2546,7 @@ def generate_census(common_data, *, boundary_code=None, with_hidden_latlong=Fals
     ancestral = build_boundary_ancestral_path_from_codes(codes)
 
     # Facility bits from your samples (you can also draw from a facility list you maintain)
-    facility_id = random.choice([
-        "F-2025-07-31-008943", "F-2025-02-11-008917", "F-2025-05-20-009001"
-    ])
-    facility_name = random.choice(["Bednet L7", "AS Pemba", "Primary HC West"])
+    facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
 
     additional_details = {
         "facilityId": facility_id,
@@ -2447,7 +2660,7 @@ def generate_plan(common_data, *, campaign_id=None, plan_config_id=None, localit
     locality = locality_code or codes.get("village") or codes.get("locality")
 
     # Facility and IDs
-    facility_id = random.choice(["F-2025-02-11-008917", "F-2025-07-31-008943"])
+    facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
     campaign_id = campaign_id or random.choice([
         "ae8a7a19-ab74-4cf6-9db1-4cfbeb6583d8",
         "17d06b2a-857f-4fab-aac1-bc4b2001c665",
@@ -2726,13 +2939,21 @@ def generate_stock_reconciliation(common_data: dict,
     campaign_number  = campaign_number  or common_data.get("campaignNumber")  or "CMP-2025-08-25-001466"
     user_name        = user_name        or common_data.get("userName")        or "USR-006196"
     name_of_user     = name_of_user     or common_data.get("nameOfUser")      or random.choice(["Lata", "James Brown"])
-    facility_id      = facility_id      or common_data.get("facilityId")      or random.choice(["F-2025-07-31-008941","F-2025-07-31-008938","F-2025-04-08-008932"])
-    facility_name    = facility_name    or common_data.get("facilityName")    or random.choice(["Bednet L5","Bednet L2","Facility Storage","Facility Storage Grand Gedeh","Destination Warehouse 5","LLIN Facilities"])
     product_variant_id = product_variant_id or common_data.get("productVariantId") or random.choice(["PVAR-2025-01-09-000099","PVAR-2025-01-08-000094","PVAR-2025-07-30-000134"])
     product_name     = product_name     or common_data.get("productName")     or random.choice(["SP - 250mg","Bednet - Grade 1"])
     locality_code    = locality_code    or common_data.get("localityCode")    or "MICROPLAN_MO"
     boundary_hierarchy = boundary_hierarchy or common_data.get("boundaryHierarchy") or {"country": "Nigeria"}
     boundary_hierarchy_code = boundary_hierarchy_code or common_data.get("boundaryHierarchyCode") or {"country": "MICROPLAN_MO"}
+
+    if not facility_id:
+        facility_id = common_data.get("facilityId")
+        if not facility_id:
+            facility_id, facility_name = SETTINGS.FACILITY.get_random_facility()
+        else:
+            facility_name = SETTINGS.FACILITY.FACILITY_NAMES.get(facility_id, "Unknown Facility")
+    else:
+        facility_name = facility_name or SETTINGS.FACILITY.FACILITY_NAMES.get(facility_id, "Unknown Facility")
+
 
     # --- stock math (align with samples) ---
     if received is None and issued is None and returned is None and lost is None and damaged is None:
@@ -2861,14 +3082,11 @@ def generate_plan_facility(common_data: dict, user_id: str,
     service_boundaries_value = maybe_service_boundaries(code_pool)  # "" or CSV
 
     facility_id = random_facility_id()
-    facility_name = facility_name or random.choice([
-        "New Facility", "AS Pemba", "Armazem distrital de Pemba ",
-        "Armazem distrital de Mecufi", "Dundun Hp New",
-        "Bednet L1", "Bednet L2", "Bednet L3", "Bednet L4", "Bednet L5", "Bednet L6", "Bednet L7",
-        "NPHC IYERE"
-    ])
+    if not facility_name:
+        _, facility_name = SETTINGS.FACILITY.get_random_facility()
+    facility_type = facility_type or SETTINGS.FACILITY.get_random_facility_type()
     fixed_post_yes_no = fixed_post_yes_no or random.choice(["Yes", "No"])
-    facility_type = facility_type or random.choice(["Warehouse", "Health Facility", "Storing Resource"])
+    facility_type = facility_type or SETTINGS.FACILITY.get_random_facility_type()
 
     lat = None if random.random() < 0.7 else 10
     lon = None if random.random() < 0.7 else 10
