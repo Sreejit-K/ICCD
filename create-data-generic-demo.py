@@ -1101,7 +1101,8 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
             "cycleIndex": random.choice([("01","02")]),
             "noOfRooms": random.randint(1, 15),
             "pregnantWomen": random.randint(0, 1),
-            "longitude": str(longitude)
+            "longitude": str(longitude),
+            "height": random.randint(90, 180)
         },
         {
             "memberCount": str(random.randint(1, 3)),
@@ -1110,7 +1111,8 @@ def generate_project_task(common_data, individual_client_ref_id, individual_id):
             "pregnantWomenCount": str(random.randint(0, 2)),
             "administrativeArea": boundary.get("village", boundary.get("locality")),
             "childrenCount": str(random.randint(0, 4)),
-            "gender": random.choice(["MALE", "FEMALE"])
+            "gender": random.choice(["MALE", "FEMALE"]),
+            "height": random.randint(90, 180)
         }
     ]
     additional_details = random.choice(additional_details_options)
@@ -1796,7 +1798,7 @@ def generate_service_task(common_data, user_id):
     ]
 
     # Attribute codes pool (mixing household & eligibility codes + generic)
-    attribute_codes = ["SN1", "SN2", "SN3", "SN4", "SN5", "SMC1", "SMC1.YES.SM1", "SMC2", "SMC3"]
+    attribute_codes = ["SN1", "SN2", "SN3", "SN4", "SN5", "SMC1", "SMC1.YES.SM1", "SMC2", "SMC3","POSITIVE"]
 
     now = datetime.now(timezone.utc)
     timestamp = int(now.timestamp() * 1000)
