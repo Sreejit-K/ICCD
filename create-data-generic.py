@@ -69,7 +69,7 @@ class GeoConfig:
 class ESConfig:
     host: str = "http://elasticsearch-master.es-upgrade:9200/"
     # Basic auth header value (Base64 of "user:pass"), keep configurable
-    basic_auth_b64: str = "ZWxhc3RpYzpaRFJsT0RJME1UQTNNV1ppTVRGbFptRms="
+    basic_auth_b64: str = "****"
     verify_ssl: bool = False
     # Bulk settings
     bulk_chunk_lines: int = 50000
@@ -1579,7 +1579,7 @@ def generate_service_task(common_data, user_id):
     ]
 
     # Attribute codes pool (mixing household & eligibility codes + generic)
-    attribute_codes = ["SN1", "SN2", "SN3", "SN4", "SN5", "SMC1", "SMC1.YES.SM1", "SMC2", "SMC3"]
+    attribute_codes = ["SN1", "SN2", "SN3", "SN4", "SN5", "SMC1", "SMC1.YES.SM1", "SMC2", "SMC3","POSITIVE"]
 
     now = datetime.now(timezone.utc)
     timestamp = int(now.timestamp() * 1000)
